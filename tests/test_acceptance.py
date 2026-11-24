@@ -91,11 +91,16 @@ class Acceptance(TestCase):
         self.assertEqual(event['status'], 'rejected')
         self.assertEqual(self.app.data['market']['KM-102']['price'], 1000)
         self.assertEqual(self.rec('KM-101')['price'], 1000)
+        product = next(p for p in self.app.view(self.now)['products'] if p['sku'] == 'KM-101')
+        self.assertEqual(product['price'], 1040)
+        self.assertTrue(product['needs_sync'])
         with self.assertRaises(ValueError):
             self.action('approve', sku='KM-101', id=stale)
         self.action('sync')
         self.assertEqual(self.rec('KM-101')['price'], 1040)
         self.assertEqual(self.app.data['observed']['KM-101']['anchor'], 1040)
+        product = next(p for p in self.app.view(self.now)['products'] if p['sku'] == 'KM-101')
+        self.assertFalse(product['needs_sync'])
         self.assertEqual(sum(e['sku'] == 'KM-102' for e in self.app.data['history']), 1)
 
     def test_authenticated_publication(self):

@@ -234,11 +234,13 @@ class App:
         products = []
         for p in data['products']:
             sku = p['sku']
-            market = data['observed'][sku]
+            observed = data['observed'][sku]
+            market = data['market'][sku]
             rec = data['recommendations'][sku]
             latest = next((e for e in reversed(data['history']) if e['sku'] == sku), None)
             products.append(dict(p, sales=None, supplies=None, rec=rec, latest=latest,
-                                 pending=bool(market.get('pending')), anchor=market['anchor'],
+                                 price=market['price'], anchor=market['anchor'], pending=bool(market.get('pending')),
+                                 needs_sync=market['revision'] != observed['revision'],
                                  auto=data['category_modes'].get(p['category']) == 'auto', dismissed=rec['id'] in data['dismissed']))
         reports = []
         for start, end in ((7, 0), (14, 7), (30, 0), (60, 30)):

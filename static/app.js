@@ -19,32 +19,40 @@ const money = value => value == null ? '—' : num(value) + ' ₽';
 const date = value => value ? value.split('-').reverse().join('.') : '—';
 const timestamp = value => value ? new Date(value).toLocaleString('ru-RU', {timeZone:'Europe/Moscow'}) : '—';
 const badge = (kind, label) => `<span class="badge ${kind}">${label}</span>`;
-const metric = (label, value) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`;
 let state, tab = 'products', category, period = 0, busy = false;
 const filter = {search:'', category:'', kind:''};
 const options = (values, selected) => values.map(([value, label]) =>
   `<option value="${escape(value)}" ${value === selected ? 'selected' : ''}>${escape(label)}</option>`).join('');
 const categoryOptions = () => Object.keys(state.rules).map(value => [value, value]);
 
+function hasProposal(p) {
+  return !p.needs_sync && ['up', 'down'].includes(p.rec.kind);
+}
+
 function row(p) {
   const r = p.rec;
-  const allowed = ['up','down'].includes(r.kind) && !p.pending && !p.dismissed;
+  const proposed = hasProposal(p);
+  const allowed = proposed && !p.pending && !p.dismissed;
   const status = p.latest;
+  const sku = escape(p.sku);
   return `<tr>
-    <td><strong>${escape(p.name)}</strong><small>${escape(p.sku)} · ${escape(p.category)}</small></td>
-    <td class="money">${money(r.price)}<small>Опорная ${money(p.anchor)}</small></td>
-    <td class="money"><strong>${money(r.proposed)}</strong>${r.step ? `<small>${r.step > 0 ? '+' : ''}${num(r.step)}%</small>` : ''}</td>
-    <td>${num(p.stock)} шт.<small>${r.cover == null ? 'Нет темпа продаж' : num(r.cover) + ' дн.'}</small></td>
-    <td>${r.supply ? `${date(r.supply.date)}<small>${num(r.supply.quantity)} шт.</small>` : 'Поставка неизвестна'}</td>
-    <td>${badge(r.kind, kinds[r.kind])}<div>${escape(r.reason)}</div>
-      <details><summary>Исходные данные</summary><small>Продажи ${num(r.sold)} шт. за ${num(r.available)} дн. наличия<br>
+    <th scope="row"><strong>${escape(p.name)}</strong><small>${sku} · ${escape(p.category)}</small></th>
+    <td class="price-cell"><div class="price-line"><strong>${money(p.price)}</strong>
+      <button class="edit-price" type="button" data-edit-price="${sku}" aria-label="Изменить цену WB · ${sku}" title="Изменить цену вручную"><span aria-hidden="true">✎</span></button>
+      </div><small>Опорная ${money(p.anchor)}</small></td>
+    <td class="proposal-cell">${proposed ? `<div class="price-line"><strong>${money(r.proposed)}</strong>${badge(r.kind,`${r.step > 0 ? '+' : ''}${num(r.step)}%`)}</div>`
+      : p.needs_sync ? '<span class="muted">После синхронизации</span>' : '<span class="muted">—</span>'}
+      ${allowed ? `<div class="proposal-actions"><button data-action="approve" data-sku="${sku}" data-id="${r.id}"
+        aria-label="Принять рекомендацию · ${sku}">Принять</button><button data-action="reject" data-sku="${sku}"
+        data-id="${r.id}" aria-label="Отклонить рекомендацию · ${sku}">Отклонить</button></div>` : ''}</td>
+    <td class="stock-cell">${num(p.stock)} шт.<small>${r.cover == null ? 'Нет темпа продаж' : num(r.cover) + ' дн. запаса'}</small></td>
+    <td class="supply-cell">${r.supply ? `${date(r.supply.date)}<small>${num(r.supply.quantity)} шт.</small>` : '<span class="muted">Неизвестна</span>'}</td>
+    <td class="reason-cell">${p.needs_sync ? 'Цена изменена вручную' : escape(r.reason)}
+      <details><summary>Расчёт</summary><small>Продажи ${num(r.sold)} шт. за ${num(r.available)} дн. наличия<br>
        Темп ${num(r.rate)} шт./день<br>Себестоимость ${money(p.cost)}<br>Учётная цена ${money(p.accounting)}<br>
        Минимальная цена ${money(r.minimum)}</small></details></td>
-    <td>${status ? badge(status.status, statuses[status.status]) : '<span class="muted">Не отправлялась</span>'}
-      ${status?.message ? `<small>${escape(status.message)}</small>` : ''}
-      ${allowed ? `<div class="actions"><button class="primary" data-action="approve"
-       data-sku="${escape(p.sku)}" data-id="${r.id}">Подтвердить</button><button data-action="reject"
-       data-sku="${escape(p.sku)}" data-id="${r.id}">Отклонить</button></div>` : ''}</td></tr>`;
+    <td>${status ? badge(status.status, statuses[status.status]) : '<span class="muted">—</span>'}
+      ${status?.message ? `<small>${escape(status.message)}</small>` : ''}</td></tr>`;
 }
 
 function refreshRows() {
@@ -57,15 +65,17 @@ function refreshRows() {
 
 function products() {
   const p = state.products;
-  return `<div class="metrics">
-    ${metric('Товаров', p.length)}${metric('Рекомендаций', p.filter(x => ['up','down'].includes(x.rec.kind) && !x.pending && !x.dismissed).length)}
-    ${metric('Ожидают применения', p.filter(x => x.pending).length)}${metric('С ограничениями', p.filter(x => x.rec.kind === 'blocked').length)}
-    </div><div class="panel catalog"><div class="toolbar">
+  const outstanding = p.filter(x => hasProposal(x) && !x.pending && !x.dismissed).length;
+  const pending = p.filter(x => x.pending).length;
+  return `<div class="panel catalog"><div class="toolbar">
     <input type="search" id="search" aria-label="Поиск по названию или артикулу" placeholder="Название или артикул" value="${escape(filter.search)}">
     <select id="filter-category" aria-label="Категория">${options([['','Все категории'],...categoryOptions()],filter.category)}</select>
     <select id="filter-kind" aria-label="Тип рекомендации">${options([['','Все рекомендации'],...Object.entries(kinds)],filter.kind)}</select>
-    </div><div class="table-scroll"><table><thead><tr><th>Товар</th><th>Цена WB</th><th>Предложение</th>
-    <th>Остаток / запас</th><th>Поставка</th><th>Причина</th><th>Отправка</th></tr></thead><tbody id="rows"></tbody></table></div></div>`;
+    <span class="catalog-counts">Товаров <strong>${p.length}</strong> · Рекомендаций <strong>${outstanding}</strong> · В очереди <strong>${pending}</strong></span>
+    </div><div class="table-scroll"><table aria-label="Товары и цены WB"><thead><tr>
+    <th scope="col">Товар</th><th scope="col">Цена WB</th><th scope="col">Рекомендация</th>
+    <th scope="col">Остаток</th><th scope="col">Поставка</th><th scope="col">Причина</th><th scope="col">Статус WB</th></tr></thead>
+    <tbody id="rows"></tbody></table></div></div>`;
 }
 
 function rules() {
@@ -110,11 +120,7 @@ function integrations() {
     <label class="checkbox"><input type="checkbox" name="enabled" ${state.schedule.enabled ? 'checked' : ''}> Синхронизировать ежедневно</label>
     <label>Время запуска, МСК<input type="time" name="time" value="${escape(state.schedule.time)}" required></label>
     <button class="primary">Сохранить расписание</button>
-    <div id="sync-status" class="sync-status">${syncStatus()}</div></form></div>
-    <div class="panel"><h2>Ручная цена в имитаторе WB</h2><form data-action="manual"><div class="fields">
-    <label>Товар<select name="sku">${options(state.products.map(p => [p.sku,p.sku+' · '+p.name]))}</select></label>
-    <label>Цена, ₽<input name="price" type="number" min="0.01" step="0.01" required></label>
-    </div><button class="primary">Изменить цену в WB</button></form></div>`;
+    <div id="sync-status" class="sync-status">${syncStatus()}</div></form></div>`;
 }
 
 function report() {
@@ -145,9 +151,26 @@ function notice(message, error = false) {
   $('#notice').classList.toggle('error', error);
 }
 
+function openManualPrice(sku) {
+  const product = state.products.find(p => p.sku === sku);
+  if (!product) return;
+  const dialog = $('#manual-price');
+  const form = dialog.querySelector('form');
+  form.elements.sku.value = sku;
+  form.elements.price.value = product.price;
+  $('#manual-context').textContent = `${product.name} · ${sku}`;
+  $('#manual-pending').hidden = !product.pending;
+  $('#manual-error').textContent = '';
+  dialog.showModal();
+  form.elements.price.select();
+}
+
 async function action(body) {
   if (busy) return;
   busy = true;
+  const manual = body.action === 'manual';
+  const saveButton = $('#manual-price button.primary');
+  if (manual) saveButton.disabled = true;
   try {
     const response = await fetch('/api/action', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const result = await response.json();
@@ -155,10 +178,17 @@ async function action(body) {
       state = result.state;
       if (response.ok || !['rules','settings','manual'].includes(body.action)) render();
     }
-    notice(result.message || result.error, !response.ok);
+    if (manual && response.ok) {
+      $('#manual-price').close();
+      [...document.querySelectorAll('[data-edit-price]')].find(button => button.dataset.editPrice === body.sku)?.focus();
+    }
+    if (manual && !response.ok) $('#manual-error').textContent = result.error;
+    else notice(result.message || result.error, !response.ok);
   } catch (error) {
-    notice(error.message, true);
+    if (manual) $('#manual-error').textContent = error.message;
+    else notice(error.message, true);
   } finally {
+    if (manual) saveButton.disabled = false;
     busy = false;
   }
 }
@@ -172,6 +202,10 @@ document.addEventListener('click', event => {
     tab = button.dataset.tab;
     notice('');
     render();
+  } else if (button.dataset.editPrice) {
+    openManualPrice(button.dataset.editPrice);
+  } else if (button.id === 'manual-cancel') {
+    $('#manual-price').close();
   } else if (button.id === 'sync') {
     action({action:'sync'});
   } else if (button.dataset.action) {
