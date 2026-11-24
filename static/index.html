@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Репрайсер · Wildberries</title>
+<link rel="stylesheet" href="/style.css">
+<script defer src="/app.js"></script>
+</head>
+<body>
+<aside>
+  <div class="brand"><span class="mark" aria-hidden="true">↗</span><div>Репрайсер<small>Wildberries · Демо</small></div></div>
+  <nav aria-label="Разделы">
+    <button data-tab="products" aria-current="page"><span aria-hidden="true">▦</span> Товары</button>
+    <button data-tab="rules"><span aria-hidden="true">☷</span> Правила</button>
+    <button data-tab="integrations"><span aria-hidden="true">⛓</span> Интеграции</button>
+    <button data-tab="report"><span aria-hidden="true">▥</span> Отчёт</button>
+  </nav>
+</aside>
+<main>
+  <header><div><h1 id="title">Товары</h1><p id="subtitle">Рекомендации по ценам и статус их применения</p></div>
+    <div class="header-actions"><span id="updated"></span><button class="primary" id="sync">Синхронизировать</button></div>
+  </header>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <section id="content" aria-label="Содержимое раздела"><p>Загрузка…</p></section>
+</main>
+</body>
+</html>

@@ -1,11 +1,12 @@
 """Отдельный HTTP-источник с демонстрационными данными учётной системы."""
 import json
-from datetime import date, timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 def snapshot():
-    today = date.today()
+    today = datetime.now(ZoneInfo('Europe/Moscow')).date()
     rows = [
         ('KM-101', 'Кофейная кружка', 'Посуда', 30, 10, 550, 10),
         ('KM-102', 'Стеклянный графин', 'Посуда', 140, 1, 550, 7),
@@ -19,7 +20,7 @@ def snapshot():
     return [dict(sku=sku, name=name, category=category, stock=stock, cost=cost, accounting=1000,
                  sales=[dict(date=str(today - timedelta(days=i)), available=sku != 'TX-201' or i <= 15,
                              units=units if sku != 'TX-201' or i <= 15 else 0)
-                        for i in range(1, 31)],
+                        for i in range(1, 61)],
                  supplies=[dict(date=str(today + timedelta(days=delta)), quantity=80)]
                  if delta is not None else [])
             for sku, name, category, stock, units, cost, delta in rows]

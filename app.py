@@ -40,10 +40,12 @@ class App:
 
     def tick(self, now):
         data = self.data
-        before = sum(bool(row.get('pending')) for row in data['market'].values())
+        pending = {sku for sku, row in data['market'].items() if row.get('pending')}
         self.adapter().settle(data['history'], now)
-        if before != sum(bool(row.get('pending')) for row in data['market'].values()):
-            self.observe()
+        settled = [sku for sku in pending if not data['market'][sku].get('pending')]
+        if settled:
+            for sku in settled:
+                data['observed'][sku] = data['market'][sku].copy()
             self.calculate(now)
             self.save()
 
@@ -64,10 +66,10 @@ class App:
             data['recommendations'][sku] = result
             if (auto and data['auto'].get(sku) and result['kind'] in ('up', 'down')
                     and result['id'] not in data['dismissed']
-                    and previous.get(sku, {}).get('id') != result['id']):
+                    and previous.get(sku, {}).get('id') != result['id']
+                    and data['market'][sku]['revision'] == market['revision']
+                    and not any(e.get('recommendation') == result['id'] for e in data['history'])):
                 self.submit(sku, result, 'Автоматически', now)
-        if auto:
-            self.observe()
 
     def sync(self, now):
         data = self.data
@@ -91,7 +93,8 @@ class App:
         if market['revision'] != self.data['observed'][sku]['revision']:
             raise ValueError('Цена на площадке изменилась. Синхронизируйте данные')
         event = dict(id=uuid4().hex, sku=sku, old=result['price'], new=result['proposed'],
-                     reason=result['reason'], method=method, status='pending', at=now.isoformat())
+                     reason=result['reason'], method=method, status='pending', at=now.isoformat(),
+                     recommendation=result['id'])
         self.adapter().submit(sku, event, now)
         self.data['history'].append(event)
         self.data['observed'][sku] = market.copy()
@@ -157,7 +160,14 @@ class App:
                 raise ValueError('Некорректный режим или артикул')
             data['auto'][sku] = body['auto']
         elif action == 'manual':
-            self.adapter().manual(sku, number(body['price'], 0.01, 100000000), data['history'], now)
+            market = data['market'][sku]
+            old_price = market['price']
+            price = round(number(body['price'], 0.01, 100000000), 2)
+            self.adapter().manual(sku, price, data['history'], now)
+            data['observed'][sku].pop('pending', None)
+            data['history'].append(dict(id=uuid4().hex, sku=sku, old=old_price, new=price,
+                reason='Ручная смена цены на площадке', method='Имитатор WB',
+                status='manual', at=now.isoformat(), finished=now.isoformat()))
         else:
             raise ValueError('Неизвестное действие')
         self.save()
@@ -254,8 +264,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(dict(error=str(error), state=app.view(clock())), 400)
 
 
+class Server(HTTPServer):
+    def service_actions(self):
+        app.tick(clock())
+
+
 if __name__ == '__main__':
     app = App()
     port = int(os.environ.get('REPRICER_PORT', '8765'))
     print(f'http://127.0.0.1:{port}', flush=True)
-    HTTPServer(('127.0.0.1', port), Handler).serve_forever()
+    Server(('127.0.0.1', port), Handler).serve_forever()
