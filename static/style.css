@@ -69,7 +69,8 @@ summary{cursor:pointer;color:#4b36b4}
 .sync-status [role=alert]{color:#87421d}
 .catalog .toolbar{gap:8px;padding:10px 12px}
 .catalog .toolbar input,.catalog .toolbar select{min-height:34px;padding:6px 9px}
-.catalog-counts{margin-inline-start:auto;color:var(--muted);font-size:.81rem;white-space:nowrap}
+.catalog-summary{margin-inline-start:auto;display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.catalog-counts{color:var(--muted);font-size:.81rem;white-space:nowrap}
 .catalog-counts strong{color:#191b32;font-variant-numeric:tabular-nums}
 .catalog table{min-width:910px}
 .catalog th,.catalog td{padding:8px 10px;border-inline-end:1px solid var(--line)}
@@ -94,7 +95,7 @@ summary{cursor:pointer;color:#4b36b4}
 #manual-context{font-size:.88rem;color:var(--muted)}
 #manual-error{color:#87421d}
 #manual-error:empty{display:none}
-.batch-banner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;background:#f4f1ff;border-color:#ded7ff}
+.batch-shortcut{padding:5px 8px;background:var(--soft);color:#4933a9;border-color:transparent;font-weight:650;font-size:.81rem}
 .batch-items{list-style:none;padding:0;margin:0 0 20px}
 .batch-items li{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .task-json{overflow:auto;max-height:45vh;border-radius:8px;padding:14px;background:#17182c;color:#f2efff;font-size:.86rem}

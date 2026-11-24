@@ -393,6 +393,8 @@ class Server(HTTPServer):
 
 if __name__ == '__main__':
     app = App()
+    host = os.environ.get('REPRICER_HOST', '127.0.0.1')
     port = int(os.environ.get('REPRICER_PORT', '8765'))
-    print(f'http://127.0.0.1:{port}', flush=True)
-    Server(('127.0.0.1', port), Handler).serve_forever()
+    with Server((host, port), Handler) as server:
+        print(f'http://{host}:{port}', flush=True)
+        server.serve_forever()

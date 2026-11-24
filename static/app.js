@@ -29,8 +29,17 @@ function activeTab() {
   return Object.hasOwn(titles, name) ? name : 'products';
 }
 
+function newTaskId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+}
+
 function updateDraft(items) {
-  draft = items.length ? {action:'send_batch', task_id:crypto.randomUUID(), items} : null;
+  draft = items.length ? {action:'send_batch', task_id:newTaskId(), items} : null;
   if (draft) sessionStorage.setItem(draftKey, JSON.stringify(draft));
   else sessionStorage.removeItem(draftKey);
 }
@@ -65,7 +74,7 @@ function row(p) {
     <td class="proposal-cell">${proposed ? `<div class="price-line"><strong>${money(r.proposed)}</strong>${badge(r.kind,`${r.step > 0 ? '+' : ''}${num(r.step)}%`)}</div>`
       : p.needs_sync ? '<span class="muted">После синхронизации</span>' : '<span class="muted">—</span>'}
       ${allowed ? `<div class="proposal-actions"><button data-stage="${sku}"
-        aria-label="Добавить рекомендацию в пакет · ${sku}">В пакет</button><button data-action="reject" data-sku="${sku}"
+        aria-label="Принять рекомендацию · ${sku}">Принять</button><button data-action="reject" data-sku="${sku}"
         data-id="${r.id}" aria-label="Отклонить рекомендацию · ${sku}">Отклонить</button></div>` : ''}
       ${queued?.source === 'recommendation' ? `<small class="draft-price">В пакете ${money(queued.price)}</small>` : ''}</td>
     <td class="stock-cell">${num(p.stock)} шт.<small>${r.cover == null ? 'Нет темпа продаж' : num(r.cover) + ' дн. запаса'}</small></td>
@@ -90,14 +99,12 @@ function products() {
   const p = state.products;
   const outstanding = p.filter(x => hasProposal(x) && !x.pending && !x.dismissed).length;
   const pending = p.filter(x => x.pending).length;
-  return `${draft ? `<div class="panel batch-banner">
-    <div><strong>Изменения цен готовы к отправке</strong><small>Товаров в пакете · ${draft.items.length}</small></div>
-    <button class="primary" data-go="batch">Проверить пакет</button>
-    </div>` : ''}<div class="panel catalog"><div class="toolbar">
+  return `<div class="panel catalog"><div class="toolbar">
     <input type="search" id="search" aria-label="Поиск по названию или артикулу" placeholder="Название или артикул" value="${escape(filter.search)}">
     <select id="filter-category" aria-label="Категория">${options([['','Все категории'],...categoryOptions()],filter.category)}</select>
     <select id="filter-kind" aria-label="Тип рекомендации">${options([['','Все рекомендации'],...Object.entries(kinds)],filter.kind)}</select>
-    <span class="catalog-counts">Товаров <strong>${p.length}</strong> · Рекомендаций <strong>${outstanding}</strong> · В очереди <strong>${pending}</strong></span>
+    <div class="catalog-summary"><span class="catalog-counts">Товаров <strong>${p.length}</strong> · Рекомендаций <strong>${outstanding}</strong> · В очереди <strong>${pending}</strong></span>
+    ${draft ? `<button class="batch-shortcut" data-go="batch">К отправке · ${draft.items.length}</button>` : ''}</div>
     </div><div class="table-scroll"><table aria-label="Товары и цены WB"><thead><tr>
     <th scope="col">Товар</th><th scope="col">Цена WB</th><th scope="col">Рекомендация</th>
     <th scope="col">Остаток</th><th scope="col">Поставка</th><th scope="col">Причина</th><th scope="col">Статус WB</th></tr></thead>
@@ -168,7 +175,7 @@ function report() {
 function batch() {
   if (!draft) return '<div class="panel"><p>Пакет пуст.</p><button data-go="products">К товарам</button></div>';
   return `<div class="panel form-panel">
-    <h2>Цены в пакете</h2>
+    <h2>Товары к отправке</h2>
     <ul class="batch-items">${draft.items.map(item => {
       const product = state.products.find(p => p.sku === item.sku);
       return `<li><span><strong>${escape(product?.name || item.sku)}</strong>
