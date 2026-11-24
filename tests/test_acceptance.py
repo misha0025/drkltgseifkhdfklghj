@@ -37,7 +37,7 @@ class Acceptance(TestCase):
             thread = Thread(target=source.serve_forever)
             thread.start()
             try:
-                self.action('settings', url=f'http://127.0.0.1:{source.server_port}/snapshot',
+                self.action('settings', mode='json', url=f'http://127.0.0.1:{source.server_port}/snapshot',
                             delay=2, max_drop=3)
                 self.assertIn('60 товаров', self.action('check'))
                 self.action('sync')
@@ -122,7 +122,7 @@ class Acceptance(TestCase):
             thread = Thread(target=source.serve_forever)
             thread.start()
             try:
-                fields = dict(url=f'http://127.0.0.1:{source.server_port}/trade',
+                fields = dict(mode='json', url=f'http://127.0.0.1:{source.server_port}/trade',
                               service='hs/repricer/snapshot', login='operator', delay=2, max_drop=3)
                 self.action('settings', **fields, password='wrong')
                 with self.assertRaisesRegex(ValueError, '401'):
@@ -138,6 +138,16 @@ class Acceptance(TestCase):
             finally:
                 source.shutdown()
                 thread.join()
+
+    def test_connection_form_defaults_to_standard_ut(self):
+        self.action('settings', url='https://example.test/ut/ru/', login='operator',
+                    password='', warehouse='Склад', organization='Организация',
+                    price_type='Розничная', delay=2, max_drop=3)
+        with patch('app.accounting_snapshot', return_value=[]) as source:
+            self.action('check')
+        source.assert_called_once_with('https://example.test/ut/ru/', service='', login='operator',
+                                       password='', mode='ut', warehouse='Склад',
+                                       organization='Организация', price_type='Розничная')
 
     def test_schedule_runs_once_per_day_and_survives_restart(self):
         start = self.now.replace(hour=9, minute=0, second=0, microsecond=0)

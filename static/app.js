@@ -154,18 +154,15 @@ function syncStatus() {
 
 function integrations() {
   return `<div class="panel form-panel"><h2>Подключение к 1С и WB</h2><form data-action="settings">
-    <fieldset><legend>1С</legend><div class="form-grid">
-      <label>Тип подключения<select name="mode" id="source-mode">${options(
-        [['json','Готовый JSON-снимок'],['ut','Типовая УТ 11 · OData']],state.source.mode)}</select></label>
+    <fieldset><legend>1С:Управление торговлей 11</legend><div class="form-grid">
       <label>Адрес публикации 1С<input name="url" type="url" value="${escape(state.url)}" placeholder="https://demo.example.ru/trade"></label>
-      <label data-source="json" ${state.source.mode === 'ut' ? 'hidden' : ''}>Путь HTTP-сервиса<input name="service" value="${escape(state.service)}" placeholder="hs/repricer/snapshot"></label>
       <label>Логин 1С<input name="login" autocomplete="username" value="${escape(state.login)}"></label>
       <label>Пароль 1С<input name="password" type="password" autocomplete="new-password" placeholder="${state.has_password ? 'Пароль сохранён' : ''}"></label>
       ${[['warehouse','Склад'],['organization','Организация'],['price_type','Вид цены']].map(([key,label]) =>
-        `<label data-source="ut" ${state.source.mode === 'ut' ? '' : 'hidden'}>${label}
+        `<label>${label}
           <input name="${key}" value="${escape(state.source[key])}" placeholder="Название или GUID"></label>`).join('')}
     </div>
-    <p class="muted">${state.url ? 'Пустой пароль сохраняет текущий пароль при том же адресе, пути и логине.' : 'Пока используется встроенный демонстрационный набор.'}</p></fieldset>
+    <p class="muted">${state.url ? 'Пустой пароль сохраняет текущий пароль при том же адресе и логине.' : 'Пока используется встроенный демонстрационный набор.'}</p></fieldset>
     <fieldset><legend>Имитатор Wildberries</legend><div class="form-grid"><label>Задержка имитатора WB, с<input name="delay" type="number" min="1" max="60" step="any" value="${state.wb.delay}" required></label>
     <label>Максимальное снижение в WB, %<input name="max_drop" type="number" min="0" max="100" step="any" value="${state.wb.max_drop}" required></label></div></fieldset>
     <div class="form-actions"><button class="primary">Сохранить подключения</button><button type="button" data-action="check">Проверить соединения</button></div>
@@ -340,10 +337,6 @@ document.addEventListener('change', event => {
     filter[el.id.slice(7)] = el.value;
     currentPage = 1;
     refreshRows();
-  } else if (el.id === 'source-mode') {
-    el.form.querySelectorAll('[data-source]').forEach(field => {
-      field.hidden = field.dataset.source !== el.value;
-    });
   } else if (el.id === 'page-size') {
     pageSize = Number(el.value);
     currentPage = 1;

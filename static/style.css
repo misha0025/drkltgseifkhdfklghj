@@ -106,5 +106,3 @@ summary{cursor:pointer;color:#4b36b4}
 .catalog-pagination select,.catalog-pagination button{min-height:32px;padding:5px 8px}
 .catalog-pagination button:disabled{cursor:default}
 .page-controls{margin-inline-start:auto}
-
-.form-grid [hidden]{display:none}

@@ -226,7 +226,7 @@ class App:
             connection = data['connection']
             service = body.get('service', connection['service']).strip()
             login = body.get('login', connection['login']).strip()
-            mode = body.get('mode', connection['mode'])
+            mode = body.get('mode', 'ut' if url else 'json')
             if mode not in ('json', 'ut'):
                 raise ValueError('Неизвестный режим подключения 1С')
             scope = {key: body.get(key, connection[key]).strip()
