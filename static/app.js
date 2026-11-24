@@ -111,15 +111,15 @@ function rules() {
     ['Маржа и расходы', ['margin', 'commission', 'logistics']],
     ['Залежалость', ['stale', 'idle']],
   ];
-  return `<div class="panel settings-panel"><h2>Настройки категории</h2><form data-action="rules">
-    <label>Категория<select id="rule-category" name="category">${options(categoryOptions(),category)}</select></label>
+  return `<div class="panel form-panel"><h2>Настройки категории</h2><form data-action="rules">
+    <div class="form-grid"><label>Категория<select id="rule-category" name="category">${options(categoryOptions(),category)}</select></label>
     <label>Режим применения цен<select name="mode">${options(
-      [['manual','Только рекомендации'],['auto','Автоматически']], state.category_modes[category] || 'manual')}</select></label>
+      [['manual','Только рекомендации'],['auto','Автоматически']], state.category_modes[category] || 'manual')}</select></label></div>
     <p class="muted">Режим действует для всех товаров категории. Автоматически отправляются новые рекомендации.</p>
     ${groups.map(([title, names]) => `<fieldset><legend>${title}</legend>
-      ${names.map(name => `<label>${fields[name]}<input name="${name}" type="number" step="any"
-        value="${escape(state.rules[category]?.[name])}"></label>`).join('')}</fieldset>`).join('')}
-    <button class="primary">Сохранить и пересчитать</button></form></div>`;
+      <div class="form-grid">${names.map(name => `<label>${fields[name]}<input name="${name}" type="number" step="any"
+        value="${escape(state.rules[category]?.[name])}"></label>`).join('')}</div></fieldset>`).join('')}
+    <div class="form-actions"><button class="primary">Сохранить и пересчитать</button></div></form></div>`;
 }
 
 function syncStatus() {
@@ -130,23 +130,23 @@ function syncStatus() {
 }
 
 function integrations() {
-  return `<div class="panel"><h2>Подключение к 1С и WB</h2><form data-action="settings">
-    <div class="fields">
+  return `<div class="panel form-panel"><h2>Подключение к 1С и WB</h2><form data-action="settings">
+    <fieldset><legend>1С</legend><div class="form-grid">
       <label>Адрес публикации 1С<input name="url" type="url" value="${escape(state.url)}" placeholder="https://demo.example.ru/trade"></label>
       <label>Путь HTTP-сервиса<input name="service" value="${escape(state.service)}" placeholder="hs/repricer/snapshot"></label>
       <label>Логин 1С<input name="login" autocomplete="username" value="${escape(state.login)}"></label>
       <label>Пароль 1С<input name="password" type="password" autocomplete="new-password" placeholder="${state.has_password ? 'Пароль сохранён' : ''}"></label>
     </div>
-    <p class="muted">${state.url ? 'Пустой пароль сохраняет текущий пароль при том же адресе, пути и логине.' : 'Пока используется встроенный демонстрационный набор.'}</p>
-    <div class="fields"><label>Задержка имитатора WB, с<input name="delay" type="number" min="1" max="60" step="any" value="${state.wb.delay}" required></label>
-    <label>Максимальное снижение в WB, %<input name="max_drop" type="number" min="0" max="100" step="any" value="${state.wb.max_drop}" required></label></div>
-    <div class="actions"><button class="primary">Сохранить подключения</button><button type="button" data-action="check">Проверить соединения</button></div>
+    <p class="muted">${state.url ? 'Пустой пароль сохраняет текущий пароль при том же адресе, пути и логине.' : 'Пока используется встроенный демонстрационный набор.'}</p></fieldset>
+    <fieldset><legend>Имитатор Wildberries</legend><div class="form-grid"><label>Задержка имитатора WB, с<input name="delay" type="number" min="1" max="60" step="any" value="${state.wb.delay}" required></label>
+    <label>Максимальное снижение в WB, %<input name="max_drop" type="number" min="0" max="100" step="any" value="${state.wb.max_drop}" required></label></div></fieldset>
+    <div class="form-actions"><button class="primary">Сохранить подключения</button><button type="button" data-action="check">Проверить соединения</button></div>
     </form></div>
-    <div class="panel settings-panel"><h2>Расписание синхронизации</h2><form data-action="schedule">
-    <label class="checkbox"><input type="checkbox" name="enabled" ${state.schedule.enabled ? 'checked' : ''}> Синхронизировать ежедневно</label>
-    <label>Время запуска, МСК<input type="time" name="time" value="${escape(state.schedule.time)}" required></label>
-    <button class="primary">Сохранить расписание</button>
-    <button type="button" id="sync">Синхронизировать сейчас</button>
+    <div class="panel form-panel"><h2>Расписание синхронизации</h2><form data-action="schedule">
+    <div class="form-grid"><label class="checkbox"><input type="checkbox" name="enabled" ${state.schedule.enabled ? 'checked' : ''}> Синхронизировать ежедневно</label>
+    <label>Время запуска, МСК<input type="time" name="time" value="${escape(state.schedule.time)}" required></label></div>
+    <div class="form-actions"><button class="primary">Сохранить расписание</button>
+    <button type="button" id="sync">Синхронизировать сейчас</button></div>
     <div id="sync-status" class="sync-status">${syncStatus()}</div></form></div>`;
 }
 
@@ -167,7 +167,7 @@ function report() {
 
 function batch() {
   if (!draft) return '<div class="panel"><p>Пакет пуст.</p><button data-go="products">К товарам</button></div>';
-  return `<div class="panel batch-review">
+  return `<div class="panel form-panel">
     <h2>Цены в пакете</h2>
     <ul class="batch-items">${draft.items.map(item => {
       const product = state.products.find(p => p.sku === item.sku);
@@ -178,7 +178,7 @@ function batch() {
     }).join('')}</ul>
     <h2>JSON задания</h2>
     <pre class="task-json" tabindex="0"><code>${escape(JSON.stringify(draft, null, 2))}</code></pre>
-    <div class="actions"><button class="primary" id="send-batch">Подтвердить и отправить</button>
+    <div class="form-actions"><button class="primary" id="send-batch">Подтвердить и отправить</button>
     <button data-go="products">К товарам</button></div>
     </div>`;
 }
