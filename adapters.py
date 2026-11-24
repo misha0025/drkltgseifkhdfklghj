@@ -110,6 +110,8 @@ class Marketplace:
             else:
                 event = self.finish(history, pending, 'applied', 'Цена подтверждена площадкой', now)
                 market.update(price=event['new'], changed=now.isoformat(), revision=market['revision'] + 1)
+                if event.get('manual'):
+                    market['anchor'] = event['new']
 
     @staticmethod
     def finish(history, pending, status, message, now):

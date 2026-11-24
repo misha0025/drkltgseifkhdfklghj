@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import date, datetime, time, timedelta
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -30,6 +31,7 @@ class App:
             synced=None, error=None)
         self.data.pop('auto', None)
         self.data.setdefault('category_modes', {})
+        self.data.setdefault('batch_tasks', {})
         self.data.setdefault('connection', dict(service='', login='', password=''))
         self.data.setdefault('schedule', dict(enabled=False, time='09:00', slot=None, attempted=None))
         if not self.data['synced']:
@@ -122,21 +124,78 @@ class App:
         self.calculate(now, auto=True)
         data.update(synced=now.isoformat(), error=None)
 
-    def submit(self, sku, result, method, now):
+    def submit(self, sku, result, method, now, *, task=None, manual=False):
         market = self.data['market'][sku]
-        if market['revision'] != self.data['observed'][sku]['revision']:
+        if not manual and market['revision'] != self.data['observed'][sku]['revision']:
             raise ValueError('Цена на площадке изменилась. Синхронизируйте данные')
         event = dict(id=uuid4().hex, sku=sku, old=result['price'], new=result['proposed'],
                      reason=result['reason'], method=method, status='pending', at=now.isoformat(),
-                     recommendation=result['id'])
+                     recommendation=result.get('id'))
+        if task:
+            event.update(task=task, manual=manual)
         self.adapter().submit(sku, event, now)
         self.data['history'].append(event)
-        self.data['observed'][sku] = market.copy()
+        self.data['observed'][sku]['pending'] = market['pending']
+
+    def send_batch(self, body, now):
+        task = body['task_id']
+        items = body['items']
+        if not isinstance(task, str) or not re.fullmatch(r'[0-9a-f-]{36}', task):
+            raise ValueError('Некорректный номер задания')
+        if not isinstance(items, list) or not items:
+            raise ValueError('Добавьте товары в задание')
+        digest = sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()
+        message = f'Задание отправлено в имитатор WB · позиций: {len(items)}'
+        data = self.data
+        if task in data['batch_tasks']:
+            if data['batch_tasks'][task] != digest:
+                raise ValueError('Задание с этим номером уже отправлено')
+            return message
+
+        self.calculate(now)
+        seen = set()
+        validated = []
+        for item in items:
+            sku = item['sku']
+            if sku in seen or sku not in data['recommendations']:
+                raise ValueError(f'{sku} · повторяющийся или неизвестный артикул')
+            seen.add(sku)
+            market = data['market'][sku]
+            if market.get('pending') or item['revision'] != market['revision']:
+                raise ValueError(f'{sku} · цена изменилась или ожидает применения. Обновите позицию в задании')
+            price = number(item['price'], 0.01, 100000000)
+            if price != round(price, 2) or price == market['price']:
+                raise ValueError(f'{sku} · укажите новую цену с точностью до копеек')
+            source = item['source']
+            if source == 'recommendation':
+                rec = data['recommendations'][sku]
+                if (rec['id'] != item.get('recommendation_id') or rec['kind'] not in ('up', 'down')
+                        or rec['id'] in data['dismissed'] or rec['proposed'] != price
+                        or market['revision'] != data['observed'][sku]['revision']):
+                    raise ValueError(f'{sku} · рекомендация устарела. Обновите позицию в задании')
+            elif source == 'manual':
+                rec = dict(price=market['price'], proposed=price, reason='Ручная цена из задания')
+            else:
+                raise ValueError(f'{sku} · неизвестный источник цены')
+            validated.append((sku, rec, source == 'manual'))
+
+        self.data = deepcopy(data)
+        try:
+            for sku, rec, manual in validated:
+                self.submit(sku, rec, 'Менеджер', now, task=task, manual=manual)
+            self.data['batch_tasks'][task] = digest
+            self.save()
+        except Exception:
+            self.data = data
+            raise
+        return message
 
     def action(self, body, now):
         data = self.data
         action = body['action']
         sku = body.get('sku')
+        if action == 'send_batch':
+            return self.send_batch(body, now)
         if action in ('approve', 'reject'):
             old = data['recommendations'].get(sku, {})
             if old.get('id') != body.get('id') or sku not in data['observed']:
@@ -239,7 +298,7 @@ class App:
             rec = data['recommendations'][sku]
             latest = next((e for e in reversed(data['history']) if e['sku'] == sku), None)
             products.append(dict(p, sales=None, supplies=None, rec=rec, latest=latest,
-                                 price=market['price'], anchor=market['anchor'], pending=bool(market.get('pending')),
+                                 price=market['price'], revision=market['revision'], anchor=market['anchor'], pending=bool(market.get('pending')),
                                  needs_sync=market['revision'] != observed['revision'],
                                  auto=data['category_modes'].get(p['category']) == 'auto', dismissed=rec['id'] in data['dismissed']))
         reports = []

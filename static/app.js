@@ -3,6 +3,7 @@ const titles = {
   rules: ['Правила', 'Настройки по категориям и режимы по товарам'],
   integrations: ['Интеграции', 'Источник учётных данных и имитатор Wildberries'],
   report: ['Отчёт', 'Наличие, расчётная маржа и история цен'],
+  batch: ['Задание для Wildberries', 'Проверьте JSON перед отправкой цен в имитатор WB'],
 };
 const kinds = {up:'Повышение', down:'Снижение', same:'Без изменений', blocked:'Ограничение'};
 const statuses = {pending:'Ожидает применения', applied:'Применена', rejected:'Отклонена WB',
@@ -19,7 +20,26 @@ const money = value => value == null ? '—' : num(value) + ' ₽';
 const date = value => value ? value.split('-').reverse().join('.') : '—';
 const timestamp = value => value ? new Date(value).toLocaleString('ru-RU', {timeZone:'Europe/Moscow'}) : '—';
 const badge = (kind, label) => `<span class="badge ${kind}">${label}</span>`;
-let state, tab = 'products', category, period = 0, busy = false;
+const draftKey = 'repricer-wb-draft';
+let draft = JSON.parse(sessionStorage.getItem(draftKey) || 'null');
+let state, tab = activeTab(), category, period = 0, busy = false;
+
+function activeTab() {
+  const name = location.hash.slice(1);
+  return Object.hasOwn(titles, name) ? name : 'products';
+}
+
+function updateDraft(items) {
+  draft = items.length ? {action:'send_batch', task_id:crypto.randomUUID(), items} : null;
+  if (draft) sessionStorage.setItem(draftKey, JSON.stringify(draft));
+  else sessionStorage.removeItem(draftKey);
+}
+
+function stage(item) {
+  updateDraft([...(draft?.items || []).filter(entry => entry.sku !== item.sku), item]);
+  render();
+}
+
 const filter = {search:'', category:'', kind:''};
 const options = (values, selected) => values.map(([value, label]) =>
   `<option value="${escape(value)}" ${value === selected ? 'selected' : ''}>${escape(label)}</option>`).join('');
@@ -32,19 +52,22 @@ function hasProposal(p) {
 function row(p) {
   const r = p.rec;
   const proposed = hasProposal(p);
-  const allowed = proposed && !p.pending && !p.dismissed;
+  const queued = draft?.items.find(item => item.sku === p.sku);
+  const allowed = proposed && !p.pending && !p.dismissed && !queued;
   const status = p.latest;
   const sku = escape(p.sku);
   return `<tr>
     <th scope="row"><strong>${escape(p.name)}</strong><small>${sku} · ${escape(p.category)}</small></th>
     <td class="price-cell"><div class="price-line"><strong>${money(p.price)}</strong>
-      <button class="edit-price" type="button" data-edit-price="${sku}" aria-label="Изменить цену WB · ${sku}" title="Изменить цену вручную"><span aria-hidden="true">✎</span></button>
-      </div><small>Опорная ${money(p.anchor)}</small></td>
+      <button class="edit-price" type="button" data-edit-price="${sku}" ${p.pending ? 'disabled' : ''} aria-label="Изменить цену WB · ${sku}" title="Изменить цену вручную"><span aria-hidden="true">✎</span></button>
+      </div><small>Опорная ${money(p.anchor)}</small>
+      ${queued?.source === 'manual' ? `<small class="draft-price">В пакете ${money(queued.price)}</small>` : ''}</td>
     <td class="proposal-cell">${proposed ? `<div class="price-line"><strong>${money(r.proposed)}</strong>${badge(r.kind,`${r.step > 0 ? '+' : ''}${num(r.step)}%`)}</div>`
       : p.needs_sync ? '<span class="muted">После синхронизации</span>' : '<span class="muted">—</span>'}
-      ${allowed ? `<div class="proposal-actions"><button data-action="approve" data-sku="${sku}" data-id="${r.id}"
-        aria-label="Принять рекомендацию · ${sku}">Принять</button><button data-action="reject" data-sku="${sku}"
-        data-id="${r.id}" aria-label="Отклонить рекомендацию · ${sku}">Отклонить</button></div>` : ''}</td>
+      ${allowed ? `<div class="proposal-actions"><button data-stage="${sku}"
+        aria-label="Добавить рекомендацию в пакет · ${sku}">В пакет</button><button data-action="reject" data-sku="${sku}"
+        data-id="${r.id}" aria-label="Отклонить рекомендацию · ${sku}">Отклонить</button></div>` : ''}
+      ${queued?.source === 'recommendation' ? `<small class="draft-price">В пакете ${money(queued.price)}</small>` : ''}</td>
     <td class="stock-cell">${num(p.stock)} шт.<small>${r.cover == null ? 'Нет темпа продаж' : num(r.cover) + ' дн. запаса'}</small></td>
     <td class="supply-cell">${r.supply ? `${date(r.supply.date)}<small>${num(r.supply.quantity)} шт.</small>` : '<span class="muted">Неизвестна</span>'}</td>
     <td class="reason-cell">${p.needs_sync ? 'Цена изменена вручную' : escape(r.reason)}
@@ -67,7 +90,10 @@ function products() {
   const p = state.products;
   const outstanding = p.filter(x => hasProposal(x) && !x.pending && !x.dismissed).length;
   const pending = p.filter(x => x.pending).length;
-  return `<div class="panel catalog"><div class="toolbar">
+  return `${draft ? `<div class="panel batch-banner">
+    <div><strong>Изменения цен готовы к отправке</strong><small>Товаров в пакете · ${draft.items.length}</small></div>
+    <button class="primary" data-go="batch">Проверить пакет</button>
+    </div>` : ''}<div class="panel catalog"><div class="toolbar">
     <input type="search" id="search" aria-label="Поиск по названию или артикулу" placeholder="Название или артикул" value="${escape(filter.search)}">
     <select id="filter-category" aria-label="Категория">${options([['','Все категории'],...categoryOptions()],filter.category)}</select>
     <select id="filter-kind" aria-label="Тип рекомендации">${options([['','Все рекомендации'],...Object.entries(kinds)],filter.kind)}</select>
@@ -120,6 +146,7 @@ function integrations() {
     <label class="checkbox"><input type="checkbox" name="enabled" ${state.schedule.enabled ? 'checked' : ''}> Синхронизировать ежедневно</label>
     <label>Время запуска, МСК<input type="time" name="time" value="${escape(state.schedule.time)}" required></label>
     <button class="primary">Сохранить расписание</button>
+    <button type="button" id="sync">Синхронизировать сейчас</button>
     <div id="sync-status" class="sync-status">${syncStatus()}</div></form></div>`;
 }
 
@@ -138,11 +165,36 @@ function report() {
     || '<tr><td colspan="7">История пока пуста</td></tr>'}</tbody></table></div></div>`;
 }
 
+function batch() {
+  if (!draft) return '<div class="panel"><p>Пакет пуст.</p><button data-go="products">К товарам</button></div>';
+  return `<div class="panel batch-review">
+    <h2>Цены в пакете</h2>
+    <ul class="batch-items">${draft.items.map(item => {
+      const product = state.products.find(p => p.sku === item.sku);
+      return `<li><span><strong>${escape(product?.name || item.sku)}</strong>
+        <small>${escape(item.sku)} · ${item.source === 'manual' ? 'Ручная цена' : 'Рекомендация'}</small></span>
+        <strong>${money(item.price)}</strong><button type="button" data-remove="${escape(item.sku)}"
+        aria-label="Убрать из пакета · ${escape(item.sku)}">Убрать</button></li>`;
+    }).join('')}</ul>
+    <h2>JSON задания</h2>
+    <pre class="task-json" tabindex="0"><code>${escape(JSON.stringify(draft, null, 2))}</code></pre>
+    <div class="actions"><button class="primary" id="send-batch">Подтвердить и отправить</button>
+    <button data-go="products">К товарам</button></div>
+    </div>`;
+}
+
 function render() {
   $('#title').textContent = titles[tab][0];
   $('#subtitle').textContent = titles[tab][1];
   $('#updated').textContent = 'Данные · ' + timestamp(state.synced);
-  $('#content').innerHTML = ({products,rules,integrations,report})[tab]();
+  document.querySelectorAll('[data-tab]').forEach(button => {
+    if (button.dataset.tab === tab || (tab === 'batch' && button.dataset.tab === 'products')) {
+      button.setAttribute('aria-current', 'page');
+    } else {
+      button.removeAttribute('aria-current');
+    }
+  });
+  $('#content').innerHTML = ({products,rules,integrations,report,batch})[tab]();
   if (tab === 'products') refreshRows();
 }
 
@@ -157,9 +209,9 @@ function openManualPrice(sku) {
   const dialog = $('#manual-price');
   const form = dialog.querySelector('form');
   form.elements.sku.value = sku;
-  form.elements.price.value = product.price;
+  form.elements.price.value = draft?.items.find(item => item.sku === sku && item.source === 'manual')?.price ?? product.price;
+  form.dataset.revision = product.revision;
   $('#manual-context').textContent = `${product.name} · ${sku}`;
-  $('#manual-pending').hidden = !product.pending;
   $('#manual-error').textContent = '';
   dialog.showModal();
   form.elements.price.select();
@@ -168,57 +220,82 @@ function openManualPrice(sku) {
 async function action(body) {
   if (busy) return;
   busy = true;
-  const manual = body.action === 'manual';
-  const saveButton = $('#manual-price button.primary');
-  if (manual) saveButton.disabled = true;
+  const button = body.action === 'send_batch' ? $('#send-batch') : body.action === 'sync' ? $('#sync') : null;
+  if (button) button.disabled = true;
   try {
     const response = await fetch('/api/action', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const result = await response.json();
     if (result.state) {
       state = result.state;
-      if (response.ok || !['rules','settings','manual'].includes(body.action)) render();
+      if (response.ok && body.action === 'send_batch') {
+        updateDraft([]);
+        location.hash = 'products';
+      }
+      if (response.ok || !['rules','settings'].includes(body.action)) render();
     }
-    if (manual && response.ok) {
-      $('#manual-price').close();
-      [...document.querySelectorAll('[data-edit-price]')].find(button => button.dataset.editPrice === body.sku)?.focus();
-    }
-    if (manual && !response.ok) $('#manual-error').textContent = result.error;
-    else notice(result.message || result.error, !response.ok);
+    notice(result.message || result.error, !response.ok);
   } catch (error) {
-    if (manual) $('#manual-error').textContent = error.message;
-    else notice(error.message, true);
+    notice(error.message, true);
   } finally {
-    if (manual) saveButton.disabled = false;
+    if (button) button.disabled = false;
     busy = false;
   }
 }
 
+window.addEventListener('hashchange', () => {
+  tab = activeTab();
+  if (state) render();
+});
+
 document.addEventListener('click', event => {
   const button = event.target.closest('button');
-  if (!button || !state) return;
-  if (button.dataset.tab) {
-    document.querySelector('[aria-current]').removeAttribute('aria-current');
-    button.setAttribute('aria-current','page');
-    tab = button.dataset.tab;
+  if (!button || !state || busy) return;
+  if (button.dataset.tab || button.dataset.go) {
     notice('');
-    render();
+    location.hash = button.dataset.tab || button.dataset.go;
   } else if (button.dataset.editPrice) {
     openManualPrice(button.dataset.editPrice);
   } else if (button.id === 'manual-cancel') {
     $('#manual-price').close();
   } else if (button.id === 'sync') {
     action({action:'sync'});
+  } else if (button.dataset.stage) {
+    const p = state.products.find(entry => entry.sku === button.dataset.stage);
+    stage({sku:p.sku, price:p.rec.proposed, source:'recommendation', revision:p.revision, recommendation_id:p.rec.id});
+  } else if (button.dataset.remove) {
+    updateDraft(draft.items.filter(item => item.sku !== button.dataset.remove));
+    render();
+  } else if (button.id === 'send-batch') {
+    action(draft);
   } else if (button.dataset.action) {
     action({action:button.dataset.action,sku:button.dataset.sku,id:button.dataset.id});
   }
 });
 document.addEventListener('submit', event => {
   event.preventDefault();
-  const values = Object.fromEntries(new FormData(event.target));
-  const type = event.target.dataset.action;
-  if (type === 'schedule') values.enabled = event.target.elements.enabled.checked;
+  if (busy) return;
+  const form = event.target;
+  const values = Object.fromEntries(new FormData(form));
+  const type = form.dataset.action;
+  if (type === 'manual') {
+    const product = state.products.find(p => p.sku === values.sku);
+    const price = Number(values.price);
+    if (!product || product.pending || product.revision !== Number(form.dataset.revision)) {
+      $('#manual-error').textContent = 'Цена изменилась или ожидает применения. Откройте редактор заново.';
+      return;
+    }
+    if (price === product.price) {
+      $('#manual-error').textContent = 'Укажите цену, отличную от текущей.';
+      return;
+    }
+    $('#manual-price').close();
+    stage({sku:product.sku, price, source:'manual', revision:product.revision});
+    return;
+  }
+  if (type === 'schedule') values.enabled = form.elements.enabled.checked;
   action({action:type,...values});
 });
+
 document.addEventListener('input', event => {
   if (event.target.id === 'search') {
     filter.search = event.target.value;

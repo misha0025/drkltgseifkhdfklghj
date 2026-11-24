@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from threading import Thread
 from unittest import TestCase, main
 from unittest.mock import patch
+from uuid import uuid4
 
 from app import App, clock
 from demo import Handler
@@ -156,6 +157,31 @@ class Acceptance(TestCase):
             self.assertEqual(self.app.data['synced'], start.isoformat())
             self.assertEqual(self.app.data['error'], 'Ошибка источника')
             self.assertEqual(self.app.view(tomorrow)['schedule']['attempted'], tomorrow.isoformat())
+
+    def test_batch_is_atomic_replay_safe_and_applies_through_wb(self):
+        recommendation = self.rec('KM-101')
+        item = dict(sku='KM-101', price=recommendation['proposed'], source='recommendation',
+                    revision=0, recommendation_id=recommendation['id'])
+        manual = dict(sku='TX-202', price=1050, source='manual', revision=1)
+        task = uuid4()
+        with self.assertRaisesRegex(ValueError, 'TX-202'):
+            self.action('send_batch', task_id=str(task), items=[item, manual])
+        self.assertEqual(self.app.data['history'], [])
+
+        manual['revision'] = 0
+        fields = dict(task_id=str(task), items=[item, manual])
+        self.action('send_batch', **fields)
+        self.app = App()
+        self.action('send_batch', **fields)
+        self.assertEqual(len(self.app.data['history']), 2)
+        self.assertEqual({e['task'] for e in self.app.data['history']}, {str(task)})
+        self.assertTrue(all(e['status'] == 'pending' for e in self.app.data['history']))
+        self.assertEqual(self.app.data['market']['TX-202']['price'], 1000)
+        self.app.tick(self.now + timedelta(seconds=9))
+        self.assertEqual(self.app.data['market']['TX-202']['anchor'], 1050)
+        self.assertEqual(self.app.data['market']['KM-101']['price'], 1020)
+        self.assertEqual(self.app.data['market']['KM-101']['anchor'], 1000)
+        self.assertTrue(all(e['status'] == 'applied' for e in self.app.data['history']))
 
     def test_manager_rejection(self):
         sku = 'TX-204'

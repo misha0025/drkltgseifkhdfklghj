@@ -19,7 +19,7 @@
 </aside>
 <main>
   <header><div><h1 id="title">Товары</h1><p id="subtitle">Рекомендации по ценам и статус их применения</p></div>
-    <div class="header-actions"><span id="updated"></span><button class="primary" id="sync">Синхронизировать</button></div>
+    <div class="header-actions"><span id="updated"></span></div>
   </header>
   <div id="notice" role="status" aria-live="polite"></div>
   <section id="content" aria-label="Содержимое раздела"><p>Загрузка…</p></section>
@@ -29,9 +29,8 @@
     <div><h2 id="manual-title">Изменить цену WB</h2><p id="manual-context"></p></div>
     <input type="hidden" name="sku">
     <label>Новая цена, ₽<input name="price" type="number" min="0.01" max="100000000" step="0.01" required autofocus></label>
-    <p id="manual-pending" hidden>Ручная цена отменит изменение, которое ожидает применения.</p>
     <div id="manual-error" role="alert"></div>
-    <div class="actions"><button class="primary">Сохранить цену</button><button type="button" id="manual-cancel">Отмена</button></div>
+    <div class="actions"><button class="primary">Добавить в пакет</button><button type="button" id="manual-cancel">Отмена</button></div>
   </form>
 </dialog>
 </body>
