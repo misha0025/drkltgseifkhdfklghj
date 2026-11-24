@@ -12,7 +12,7 @@ import mimetypes
 import os
 import re
 
-from adapters import Marketplace, accounting_snapshot, accounting_url
+from adapters import Marketplace, accounting_snapshot, accounting_url, odata_endpoint
 from engine import DEFAULT, recommend
 
 ROOT = Path(__file__).resolve().parent
@@ -32,7 +32,10 @@ class App:
         self.data.pop('auto', None)
         self.data.setdefault('category_modes', {})
         self.data.setdefault('batch_tasks', {})
-        self.data.setdefault('connection', dict(service='', login='', password=''))
+        connection = self.data.setdefault('connection', {})
+        for key, default in dict(service='', login='', password='', mode='json',
+                                 warehouse='', organization='', price_type='').items():
+            connection.setdefault(key, default)
         self.data.setdefault('schedule', dict(enabled=False, time='09:00', slot=None, attempted=None))
         if not self.data['synced']:
             self.sync(clock())
@@ -223,18 +226,28 @@ class App:
             connection = data['connection']
             service = body.get('service', connection['service']).strip()
             login = body.get('login', connection['login']).strip()
+            mode = body.get('mode', connection['mode'])
+            if mode not in ('json', 'ut'):
+                raise ValueError('Неизвестный режим подключения 1С')
+            scope = {key: body.get(key, connection[key]).strip()
+                     for key in ('warehouse', 'organization', 'price_type')}
+            if mode == 'ut':
+                if not url or not all(scope.values()):
+                    raise ValueError('Для УТ укажите адрес, склад, организацию и вид цены')
+                odata_endpoint(url)
+                service = ''
             new_password = body.get('password', '')
             same_connection = (url, service, login) == (data['url'], connection['service'], connection['login'])
             password = new_password or (connection['password'] if same_connection else '')
             if ':' in login:
                 raise ValueError('Логин 1С не должен содержать двоеточие')
-            if login and (not url or not password):
-                raise ValueError('Укажите адрес публикации и пароль пользователя 1С')
+            if login and not url:
+                raise ValueError('Укажите адрес публикации 1С')
             if not login and new_password:
                 raise ValueError('Укажите логин пользователя 1С')
             if url:
                 accounting_url(url, service)
-            data.update(url=url, connection=dict(service=service, login=login, password=password),
+            data.update(url=url, connection=dict(service=service, login=login, password=password, mode=mode, **scope),
                         wb=dict(delay=delay, max_drop=max_drop))
         elif action == 'schedule':
             enabled, at = body['enabled'], body['time']
@@ -329,6 +342,7 @@ class App:
                                 applied=applied))
         return dict(products=products, rules=data['rules'], history=data['history'][::-1],
                     url=data['url'], service=data['connection']['service'], login=data['connection']['login'],
+                    source={key: data['connection'][key] for key in ('mode', 'warehouse', 'organization', 'price_type')},
                     has_password=bool(data['connection']['password']), category_modes=data['category_modes'],
                     schedule={key: data['schedule'][key] for key in ('enabled', 'time', 'attempted')},
                     next_sync=self.next_sync(now), wb=data['wb'], synced=data['synced'],

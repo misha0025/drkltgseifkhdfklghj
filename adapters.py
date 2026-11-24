@@ -4,10 +4,12 @@ from base64 import b64encode
 import json
 import os
 import math
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from demo import snapshot
+from ut_odata import UT
+from zoneinfo import ZoneInfo
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -28,28 +30,46 @@ def accounting_url(url, service=''):
     return url
 
 
-def accounting_snapshot(url, service='', login='', password=''):
+def odata_endpoint(url):
+    root = accounting_url(url).rstrip('/')
+    if urlsplit(root).query:
+        raise ValueError('Укажите адрес публикации УТ без параметров запроса')
+    if root.endswith('/ru'):
+        root = root[:-3]
+    suffix = '/odata/standard.odata'
+    return root if root.endswith(suffix) else root + suffix
+
+
+def accounting_snapshot(url, service='', login='', password='', mode='json',
+                        warehouse='', organization='', price_type=''):
     if not url:
         return snapshot()
     token = os.getenv('REPRICER_1C_AUTH') if not login else None
-    endpoint = accounting_url(url, service)
+    endpoint = odata_endpoint(url) if mode == 'ut' else accounting_url(url, service)
     headers = {'Accept': 'application/json'}
     if login:
         credentials = b64encode(f'{login}:{password}'.encode('utf-8')).decode('ascii')
         headers['Authorization'] = f'Basic {credentials}'
     elif token:
         headers['Authorization'] = token
-    try:
-        with build_opener(NoRedirect()).open(Request(endpoint, headers=headers), timeout=5) as response:
-            rows = json.load(response)
-    except HTTPError as error:
-        if error.code in (401, 403):
-            raise ValueError(f'HTTP {error.code}. Проверьте логин, пароль и права в 1С') from error
-        if 300 <= error.code < 400:
-            raise ValueError(f'HTTP {error.code}. Укажите конечный адрес публикации или выгрузки') from error
-        raise ValueError(f'HTTP {error.code}. Проверьте путь HTTP-сервиса') from error
-    except json.JSONDecodeError as error:
-        raise ValueError('Ожидался JSON. Проверьте путь HTTP-сервиса 1С') from error
+    def read_json(target):
+        try:
+            with build_opener(NoRedirect()).open(Request(target, headers=headers), timeout=20) as response:
+                return json.load(response)
+        except HTTPError as error:
+            if error.code in (401, 403):
+                raise ValueError(f'HTTP {error.code}. Проверьте логин, пароль и права в 1С') from error
+            if 300 <= error.code < 400:
+                raise ValueError(f'HTTP {error.code}. Укажите конечный адрес публикации или выгрузки') from error
+            resource = unquote(urlsplit(target).path.rsplit('/standard.odata/', 1)[-1])
+            raise ValueError(f'HTTP {error.code} · {resource}. Проверьте публикацию объекта 1С') from error
+        except json.JSONDecodeError as error:
+            raise ValueError('Ожидался JSON. Проверьте адрес и режим подключения 1С') from error
+
+    if mode == 'ut':
+        today = datetime.now(ZoneInfo('Europe/Moscow')).date()
+        return UT(endpoint, read_json).snapshot(today, warehouse, organization, price_type)
+    rows = read_json(endpoint)
     if not isinstance(rows, list) or not rows:
         raise ValueError('Выгрузка должна содержать массив товаров')
     seen = set()

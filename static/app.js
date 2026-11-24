@@ -67,7 +67,7 @@ function row(p) {
   const status = p.latest;
   const sku = escape(p.sku);
   return `<tr>
-    <th scope="row"><strong>${escape(p.name)}</strong><small>${sku} · ${escape(p.category)}</small></th>
+    <th scope="row"><strong>${escape(p.name)}</strong><small>${escape(p.article || p.sku)} · ${escape(p.category)}</small></th>
     <td class="price-cell"><div class="price-line"><strong>${money(p.price)}</strong>
       <button class="edit-price" type="button" data-edit-price="${sku}" ${p.pending ? 'disabled' : ''} aria-label="Изменить цену WB · ${sku}" title="Изменить цену вручную"><span aria-hidden="true">✎</span></button>
       </div><small>Опорная ${money(p.anchor)}</small>
@@ -92,7 +92,7 @@ function refreshRows() {
   const search = filter.search.trim().toLocaleLowerCase('ru');
   const rows = state.products.filter(p => (!filter.category || p.category === filter.category)
     && (!filter.kind || p.rec.kind === filter.kind)
-    && `${p.sku} ${p.name}`.toLocaleLowerCase('ru').includes(search));
+    && `${p.sku} ${p.article || ''} ${p.name}`.toLocaleLowerCase('ru').includes(search));
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   currentPage = Math.min(currentPage, pageCount);
   const start = (currentPage - 1) * pageSize;
@@ -155,10 +155,15 @@ function syncStatus() {
 function integrations() {
   return `<div class="panel form-panel"><h2>Подключение к 1С и WB</h2><form data-action="settings">
     <fieldset><legend>1С</legend><div class="form-grid">
+      <label>Тип подключения<select name="mode" id="source-mode">${options(
+        [['json','Готовый JSON-снимок'],['ut','Типовая УТ 11 · OData']],state.source.mode)}</select></label>
       <label>Адрес публикации 1С<input name="url" type="url" value="${escape(state.url)}" placeholder="https://demo.example.ru/trade"></label>
-      <label>Путь HTTP-сервиса<input name="service" value="${escape(state.service)}" placeholder="hs/repricer/snapshot"></label>
+      <label data-source="json" ${state.source.mode === 'ut' ? 'hidden' : ''}>Путь HTTP-сервиса<input name="service" value="${escape(state.service)}" placeholder="hs/repricer/snapshot"></label>
       <label>Логин 1С<input name="login" autocomplete="username" value="${escape(state.login)}"></label>
       <label>Пароль 1С<input name="password" type="password" autocomplete="new-password" placeholder="${state.has_password ? 'Пароль сохранён' : ''}"></label>
+      ${[['warehouse','Склад'],['organization','Организация'],['price_type','Вид цены']].map(([key,label]) =>
+        `<label data-source="ut" ${state.source.mode === 'ut' ? '' : 'hidden'}>${label}
+          <input name="${key}" value="${escape(state.source[key])}" placeholder="Название или GUID"></label>`).join('')}
     </div>
     <p class="muted">${state.url ? 'Пустой пароль сохраняет текущий пароль при том же адресе, пути и логине.' : 'Пока используется встроенный демонстрационный набор.'}</p></fieldset>
     <fieldset><legend>Имитатор Wildberries</legend><div class="form-grid"><label>Задержка имитатора WB, с<input name="delay" type="number" min="1" max="60" step="any" value="${state.wb.delay}" required></label>
@@ -183,7 +188,7 @@ function report() {
     <small>Продажи и наличие учитываются за завершённые дни. Складской остаток, учётная цена и расходы взяты из последней выгрузки и текущих настроек. Число применений в текущем периоде включает сегодня.</small></div>
     <div class="panel"><h2>История изменений цен</h2><div class="table-scroll"><table><thead><tr><th>Время, МСК</th><th>Артикул</th>
     <th>Старая цена</th><th>Новая цена</th><th>Причина</th><th>Способ</th><th>Результат</th></tr></thead><tbody>
-    ${state.history.map(e => `<tr><td>${timestamp(e.at)}</td><td>${escape(e.sku)}</td><td>${money(e.old)}</td><td>${money(e.new)}</td>
+    ${state.history.map(e => `<tr><td>${timestamp(e.at)}</td><td>${escape(state.products.find(product => product.sku === e.sku)?.article || e.sku)}</td><td>${money(e.old)}</td><td>${money(e.new)}</td>
     <td>${escape(e.reason)}</td><td>${escape(e.method)}</td><td>${badge(e.status,statuses[e.status])}<small>${escape(e.message)}</small></td></tr>`).join('')
     || '<tr><td colspan="7">История пока пуста</td></tr>'}</tbody></table></div></div>`;
 }
@@ -195,7 +200,7 @@ function batch() {
     <ul class="batch-items">${draft.items.map(item => {
       const product = state.products.find(p => p.sku === item.sku);
       return `<li><span><strong>${escape(product?.name || item.sku)}</strong>
-        <small>${escape(item.sku)} · ${item.source === 'manual' ? 'Ручная цена' : 'Рекомендация'}</small></span>
+        <small>${escape(product?.article || item.sku)} · ${item.source === 'manual' ? 'Ручная цена' : 'Рекомендация'}</small></span>
         <strong>${money(item.price)}</strong><button type="button" data-remove="${escape(item.sku)}"
         aria-label="Убрать из пакета · ${escape(item.sku)}">Убрать</button></li>`;
     }).join('')}</ul>
@@ -234,7 +239,7 @@ function openManualPrice(sku) {
   form.elements.sku.value = sku;
   form.elements.price.value = draft?.items.find(item => item.sku === sku && item.source === 'manual')?.price ?? product.price;
   form.dataset.revision = product.revision;
-  $('#manual-context').textContent = `${product.name} · ${sku}`;
+  $('#manual-context').textContent = `${product.name} · ${product.article || sku}`;
   $('#manual-error').textContent = '';
   dialog.showModal();
   form.elements.price.select();
@@ -335,6 +340,10 @@ document.addEventListener('change', event => {
     filter[el.id.slice(7)] = el.value;
     currentPage = 1;
     refreshRows();
+  } else if (el.id === 'source-mode') {
+    el.form.querySelectorAll('[data-source]').forEach(field => {
+      field.hidden = field.dataset.source !== el.value;
+    });
   } else if (el.id === 'page-size') {
     pageSize = Number(el.value);
     currentPage = 1;
