@@ -39,14 +39,14 @@ class Acceptance(TestCase):
             try:
                 self.action('settings', url=f'http://127.0.0.1:{source.server_port}/snapshot',
                             delay=2, max_drop=3)
-                self.assertIn('18 товаров', self.action('check'))
+                self.assertIn('60 товаров', self.action('check'))
                 self.action('sync')
             finally:
                 source.shutdown()
                 thread.join()
         items = self.app.view(self.now)['products']
-        self.assertEqual(len(items), 18)
-        self.assertEqual(sum(p['rec']['kind'] in ('up', 'down') for p in items), 12)
+        self.assertEqual(len(items), 60)
+        self.assertEqual(sum(p['rec']['kind'] in ('up', 'down') for p in items), 42)
         self.assertEqual(self.rec('KM-101')['cover'], 3)
         self.assertEqual(self.rec('KM-101')['supply']['quantity'], 80)
         self.assertEqual(self.rec('TX-201')['available'], 15)
@@ -60,7 +60,7 @@ class Acceptance(TestCase):
         with self.assertRaises(ValueError):
             self.action('sync')
         self.assertEqual(self.app.data['synced'], previous_sync)
-        self.assertEqual(len(self.app.data['products']), 18)
+        self.assertEqual(len(self.app.data['products']), 60)
 
     def test_approval_delay_and_restart(self):
         sku = 'KM-101'
@@ -134,7 +134,7 @@ class Acceptance(TestCase):
                 view = self.app.view(self.now)
                 self.assertTrue(view['has_password'])
                 self.assertNotIn('password', view)
-                self.assertEqual(len(view['products']), 18)
+                self.assertEqual(len(view['products']), 60)
             finally:
                 source.shutdown()
                 thread.join()

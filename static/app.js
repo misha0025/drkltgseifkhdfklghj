@@ -49,6 +49,7 @@ function stage(item) {
   render();
 }
 
+let currentPage = 1, pageSize = 15;
 const filter = {search:'', category:'', kind:''};
 const options = (values, selected) => values.map(([value, label]) =>
   `<option value="${escape(value)}" ${value === selected ? 'selected' : ''}>${escape(label)}</option>`).join('');
@@ -92,7 +93,16 @@ function refreshRows() {
   const rows = state.products.filter(p => (!filter.category || p.category === filter.category)
     && (!filter.kind || p.rec.kind === filter.kind)
     && `${p.sku} ${p.name}`.toLocaleLowerCase('ru').includes(search));
-  $('#rows').innerHTML = rows.map(row).join('') || '<tr><td colspan="7">Товары по этим фильтрам не найдены</td></tr>';
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  currentPage = Math.min(currentPage, pageCount);
+  const start = (currentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, rows.length);
+  $('#rows').innerHTML = rows.slice(start, end).map(row).join('')
+    || '<tr><td colspan="7">Товары по этим фильтрам не найдены</td></tr>';
+  $('#catalog-range').textContent = rows.length ? `${start + 1}–${end} из ${rows.length}` : '0 товаров';
+  $('#catalog-page').textContent = `Страница ${currentPage} из ${pageCount}`;
+  $('#catalog-prev').disabled = currentPage === 1;
+  $('#catalog-next').disabled = currentPage === pageCount;
 }
 
 function products() {
@@ -108,7 +118,13 @@ function products() {
     </div><div class="table-scroll"><table aria-label="Товары и цены WB"><thead><tr>
     <th scope="col">Товар</th><th scope="col">Цена WB</th><th scope="col">Рекомендация</th>
     <th scope="col">Остаток</th><th scope="col">Поставка</th><th scope="col">Причина</th><th scope="col">Статус WB</th></tr></thead>
-    <tbody id="rows"></tbody></table></div></div>`;
+    <tbody id="rows"></tbody></table></div>
+    <div class="catalog-pagination" role="group" aria-label="Страницы товаров">
+      <label>На странице <select id="page-size">${options([['15','15'],['30','30'],['60','60']],String(pageSize))}</select></label>
+      <span class="muted" id="catalog-range" aria-live="polite"></span>
+      <div class="page-controls"><button id="catalog-prev" type="button">Назад</button>
+        <span id="catalog-page"></span><button id="catalog-next" type="button">Далее</button></div>
+    </div></div>`;
 }
 
 function rules() {
@@ -266,6 +282,9 @@ document.addEventListener('click', event => {
     $('#manual-price').close();
   } else if (button.id === 'sync') {
     action({action:'sync'});
+  } else if (button.id === 'catalog-prev' || button.id === 'catalog-next') {
+    currentPage += button.id === 'catalog-next' ? 1 : -1;
+    refreshRows();
   } else if (button.dataset.stage) {
     const p = state.products.find(entry => entry.sku === button.dataset.stage);
     stage({sku:p.sku, price:p.rec.proposed, source:'recommendation', revision:p.revision, recommendation_id:p.rec.id});
@@ -306,6 +325,7 @@ document.addEventListener('submit', event => {
 document.addEventListener('input', event => {
   if (event.target.id === 'search') {
     filter.search = event.target.value;
+    currentPage = 1;
     refreshRows();
   }
 });
@@ -313,6 +333,11 @@ document.addEventListener('change', event => {
   const el = event.target;
   if (el.id === 'filter-category' || el.id === 'filter-kind') {
     filter[el.id.slice(7)] = el.value;
+    currentPage = 1;
+    refreshRows();
+  } else if (el.id === 'page-size') {
+    pageSize = Number(el.value);
+    currentPage = 1;
     refreshRows();
   } else if (el.id === 'rule-category') {
     category = el.value;

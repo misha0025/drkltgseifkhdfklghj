@@ -100,3 +100,9 @@ summary{cursor:pointer;color:#4b36b4}
 .batch-items li{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .task-json{overflow:auto;max-height:45vh;border-radius:8px;padding:14px;background:#17182c;color:#f2efff;font-size:.86rem}
 .draft-price{color:#4933a9;font-weight:650}
+.catalog-pagination,.page-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.catalog-pagination{padding:9px 12px;border-top:1px solid var(--line);font-size:.85rem}
+.catalog-pagination label{display:flex;align-items:center;gap:6px}
+.catalog-pagination select,.catalog-pagination button{min-height:32px;padding:5px 8px}
+.catalog-pagination button:disabled{cursor:default}
+.page-controls{margin-inline-start:auto}

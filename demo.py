@@ -27,6 +27,19 @@ def snapshot():
         ('SP-502', 'Эспандер-лента', 'Спорт', 110, 1, 480, 11),
         ('SP-503', 'Коврик для йоги', 'Спорт', 150, 5, 600, 10),
     ]
+    colors = ('белый', 'чёрный', 'серый', 'синий', 'зелёный', 'бордовый', 'песочный')
+    scenarios = ((25, 5, 12), (210, 2, 8), (80, 0, 10), (110, 5, 7),
+                 (18, 6, 11), (95, 4, 6), (120, 1, 9))
+    for prefix, name, category, sizes, cost in (
+        ('HM', 'Контейнер', 'Для дома', ('1 л', '2 л'), 450),
+        ('ST', 'Ежедневник', 'Канцтовары', ('А5', 'А6'), 380),
+        ('SP', 'Резинка для фитнеса', 'Спорт', ('лёгкая', 'средняя'), 410),
+    ):
+        for size_index, size in enumerate(sizes):
+            for color_index, color in enumerate(colors):
+                stock, units, delta = scenarios[color_index]
+                sku = f'{prefix}-{601 + size_index * len(colors) + color_index}'
+                rows.append((sku, f'{name} {size}, цвет {color}', category, stock, units, cost, delta))
     return [dict(sku=sku, name=name, category=category, stock=stock, cost=cost, accounting=1000,
                  sales=[dict(date=str(today - timedelta(days=i)), available=sku != 'TX-201' or i <= 15,
                              units=units if sku != 'TX-201' or i <= 15 else 0)
