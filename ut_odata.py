@@ -85,14 +85,14 @@ class UT:
             'goods': ('Catalog_Номенклатура', 'Ref_Key', 'Code', 'Description', 'Артикул', 'ВидНоменклатуры_Key', 'DeletionMark', 'IsFolder'),
             'features': ('Catalog_ХарактеристикиНоменклатуры', 'Ref_Key', 'Description', 'DeletionMark'),
             'categories': ('Catalog_ВидыНоменклатуры', 'Ref_Key', 'Description'),
-            'stock': (STOCK + '/Balance()', GOOD, FEATURE, WAREHOUSE, 'ВНаличииBalance'),
+            'stock': (STOCK + '/Balance()', GOOD, FEATURE, WAREHOUSE, 'ВНаличииBalance', 'КОтгрузкеBalance'),
             'opening': (STOCK + f"/Balance(Period=datetime'{start}T00:00:00')", GOOD, FEATURE, WAREHOUSE, 'ВНаличииBalance'),
             'movements': (STOCK + '_RecordType', GOOD, FEATURE, WAREHOUSE, 'Active', 'Period', 'RecordType', 'ВНаличии'),
             'sales': ('AccumulationRegister_ВыручкаИСебестоимостьПродаж_RecordType', ITEM_ANALYTICS, PARTNER_ANALYTICS, 'Period', 'Active', 'Склад', 'Склад_Type', 'Количество', 'ХозяйственнаяОперация'),
             'item_keys': ('Catalog_КлючиАналитикиУчетаНоменклатуры', 'Ref_Key', GOOD, FEATURE),
             'partner_keys': ('Catalog_КлючиАналитикиУчетаПоПартнерам', 'Ref_Key', ORG),
             'cost': (COST + '/Balance()', ITEM_ANALYTICS, ORG, 'РазделУчета', 'КоличествоBalance', 'СтоимостьУпрBalance', 'ДопРасходыУпрBalance'),
-            'orders': (ORDERS + '/Balance()', GOOD, FEATURE, WAREHOUSE, 'ЗаказПоставщику_Key', 'КодСтроки', 'КПоступлениюBalance'),
+            'orders': (ORDERS + '/Balance()', GOOD, FEATURE, WAREHOUSE, 'ЗаказПоставщику_Key', 'КодСтроки', 'КОформлениюBalance', 'КПоступлениюBalance'),
             'order_heads': ('Document_ЗаказПоставщику', 'Ref_Key', ORG, 'Posted', 'DeletionMark', 'ДатаПоступления'),
             'order_lines': ('Document_ЗаказПоставщику_Товары', 'Ref_Key', 'КодСтроки', 'ДатаПоступления', 'Отменено'),
         }
@@ -128,11 +128,13 @@ class UT:
         categories = {row['Ref_Key']: row['Description'] for row in data['categories']}
         features = {row['Ref_Key']: row['Description'] for row in data['features'] if not row['DeletionMark']}
 
-        stock, opening, movements, sold = (defaultdict(Decimal) for _ in range(4))
+        stock, reserved, opening, movements, sold = (defaultdict(Decimal) for _ in range(5))
         for resource, totals in (('stock', stock), ('opening', opening)):
             for row in data[resource]:
                 if row[WAREHOUSE] == warehouse:
                     totals[item(row)] += number(row['ВНаличииBalance'])
+                    if resource == 'stock':
+                        reserved[item(row)] += number(row.get('КОтгрузкеBalance'))
         dates = set(day_keys)
         for row in data['movements']:
             period = day(row)
@@ -175,7 +177,7 @@ class UT:
         for row in data['orders']:
             order = row['ЗаказПоставщику_Key']
             line = lines.get((order, row['КодСтроки']))
-            amount = number(row['КПоступлениюBalance'])
+            amount = number(row['КОформлениюBalance']) + number(row['КПоступлениюBalance'])
             if order in heads and line and row[WAREHOUSE] == warehouse and amount > 0:
                 period = day(line, 'ДатаПоступления')
                 if not period or period.startswith('0001'):
@@ -208,7 +210,8 @@ class UT:
                 sku='ut:' + ref + (':' + feature if feature != EMPTY else ''),
                 article=row['Артикул'] or row['Code'], name=display,
                 category=categories.get(row['ВидНоменклатуры_Key']) or 'Без категории',
-                accounting=float(price[2]), stock=float(max(0, stock[key])), sales=sales,
+                accounting=float(price[2]), stock=float(max(0, stock[key])),
+                sellable=float(max(0, stock[key] - max(0, reserved[key]))), sales=sales,
                 cost=float(cost_amount[key] / cost_units[key])
                 if cost_units[key] > 0 and cost_amount[key] > 0 else None,
                 supplies=supplies[key]))

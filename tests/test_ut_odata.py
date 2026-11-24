@@ -49,7 +49,7 @@ class ODataAdapter(TestCase):
             COST + '/Balance()': [{ITEM_ANALYTICS: 'item-key', ORG: 'org', 'РазделУчета': 'ТоварыНаСкладах',
                                    'КоличествоBalance': 7, 'СтоимостьУпрBalance': 630, 'ДопРасходыУпрBalance': 70}],
             ORDERS + '/Balance()': [dict(product_key, **{WAREHOUSE: 'warehouse', 'ЗаказПоставщику_Key': 'order',
-                'КодСтроки': 12, 'КПоступлениюBalance': 3})],
+                'КодСтроки': 12, 'КОформлениюBalance': 2, 'КПоступлениюBalance': 1})],
             'Document_ЗаказПоставщику': [{'Ref_Key': 'order', ORG: 'org', 'Posted': True, 'DeletionMark': False}],
             'Document_ЗаказПоставщику_Товары': [{'Ref_Key': 'order', 'КодСтроки': 12,
                                                 'ДатаПоступления': '2026-11-28', 'Отменено': False}],

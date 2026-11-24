@@ -59,12 +59,17 @@ function hasProposal(p) {
   return !p.needs_sync && ['up', 'down'].includes(p.rec.kind);
 }
 
+function appliedRecommendation(p) {
+  return p.latest?.status === 'applied' && !p.latest.manual;
+}
+
 function row(p) {
   const r = p.rec;
   const proposed = hasProposal(p);
   const queued = draft?.items.find(item => item.sku === p.sku);
   const allowed = proposed && !p.pending && !p.dismissed && !queued;
-  const status = p.latest;
+  const applied = appliedRecommendation(p);
+  const status = applied ? null : p.latest;
   const sku = escape(p.sku);
   return `<tr>
     <th scope="row"><strong>${escape(p.name)}</strong><small>${escape(p.article || p.sku)} · ${escape(p.category)}</small></th>
@@ -78,11 +83,13 @@ function row(p) {
         aria-label="Принять рекомендацию · ${sku}">Принять</button><button data-action="reject" data-sku="${sku}"
         data-id="${r.id}" aria-label="Отклонить рекомендацию · ${sku}">Отклонить</button></div>` : ''}
       ${queued?.source === 'recommendation' ? `<small class="draft-price">В пакете ${money(queued.price)}</small>` : ''}</td>
-    <td class="stock-cell">${num(p.stock)} шт.<small>${r.cover == null ? 'Нет темпа продаж' : num(r.cover) + ' дн. запаса'}</small></td>
+    <td class="stock-cell">${num(p.stock)} шт.<small>${r.cover == null ? 'Нет темпа продаж' : num(r.cover) + ' дн. запаса'}</small>
+      ${p.sellable != null && p.sellable !== p.stock ? `<small>Доступно ${num(p.sellable)} шт.</small>` : ''}</td>
     <td class="supply-cell">${r.supply ? `${date(r.supply.date)}<small>${num(r.supply.quantity)} шт.</small>` : '<span class="muted">Неизвестна</span>'}</td>
-    <td class="reason-cell">${p.needs_sync ? 'Цена изменена вручную' : escape(r.reason)}
+    <td class="reason-cell">${p.needs_sync ? 'Цена изменена вручную' : applied && r.cooldown ? '—' : escape(r.reason)}
       <details><summary>Расчёт</summary><small>Продажи ${num(r.sold)} шт. за ${num(r.available)} дн. наличия<br>
-       Темп ${num(r.rate)} шт./день<br>Себестоимость ${money(p.cost)}<br>Учётная цена ${money(p.accounting)}<br>
+       Темп ${num(r.rate)} шт./день · дней без наличия ${num(r.unavailable)}<br>
+       Темп за последние 15 дней ${num(r.recent_rate)} · за предыдущие ${num(r.previous_rate)} шт./день<br>Себестоимость ${money(p.cost)}<br>Учётная цена ${money(p.accounting)}<br>
        Минимальная цена ${money(r.minimum)}</small></details></td>
     <td>${status ? badge(status.status, statuses[status.status]) : '<span class="muted">—</span>'}
       ${status?.message ? `<small>${escape(status.message)}</small>` : ''}</td></tr>`;
@@ -91,7 +98,7 @@ function row(p) {
 function refreshRows() {
   const search = filter.search.trim().toLocaleLowerCase('ru');
   const rows = state.products.filter(p => (!filter.category || p.category === filter.category)
-    && (!filter.kind || p.rec.kind === filter.kind)
+    && (!filter.kind || (appliedRecommendation(p) && p.rec.cooldown ? 'same' : p.rec.kind) === filter.kind)
     && `${p.sku} ${p.article || ''} ${p.name}`.toLocaleLowerCase('ru').includes(search));
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   currentPage = Math.min(currentPage, pageCount);
@@ -109,11 +116,12 @@ function products() {
   const p = state.products;
   const outstanding = p.filter(x => hasProposal(x) && !x.pending && !x.dismissed).length;
   const pending = p.filter(x => x.pending).length;
+  const share = p.length ? Math.round(100 * outstanding / p.length) : 0;
   return `<div class="panel catalog"><div class="toolbar">
     <input type="search" id="search" aria-label="Поиск по названию или артикулу" placeholder="Название или артикул" value="${escape(filter.search)}">
     <select id="filter-category" aria-label="Категория">${options([['','Все категории'],...categoryOptions()],filter.category)}</select>
     <select id="filter-kind" aria-label="Тип рекомендации">${options([['','Все рекомендации'],...Object.entries(kinds)],filter.kind)}</select>
-    <div class="catalog-summary"><span class="catalog-counts">Товаров <strong>${p.length}</strong> · Рекомендаций <strong>${outstanding}</strong> · В очереди <strong>${pending}</strong></span>
+    <div class="catalog-summary"><span class="catalog-counts">Товаров <strong>${p.length}</strong> · Рекомендаций <strong>${outstanding}</strong> (${share}%) · В очереди <strong>${pending}</strong></span>
     ${draft ? `<button class="batch-shortcut" data-go="batch">К отправке · ${draft.items.length}</button>` : ''}</div>
     </div><div class="table-scroll"><table aria-label="Товары и цены WB"><thead><tr>
     <th scope="col">Товар</th><th scope="col">Цена WB</th><th scope="col">Рекомендация</th>
