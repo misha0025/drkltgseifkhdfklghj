@@ -56,3 +56,11 @@ form .primary{justify-self:start}
 details{margin-top:6px}
 summary{cursor:pointer;color:#4b36b4}
 @media(max-width:740px){body{display:block}aside{padding:14px}nav{display:flex;gap:3px;overflow:auto}nav button{white-space:nowrap;padding:8px}nav button span{display:none}.brand{margin-bottom:12px}main{padding-top:20px}}
+.settings-panel{max-width:590px}
+.settings-panel form{max-width:420px}
+.settings-panel fieldset{display:grid;gap:12px;margin:6px 0 0;padding:13px 0 0;border:0;border-top:1px solid var(--line);min-width:0}
+.settings-panel legend{font-weight:700;padding:0 8px 0 0}
+.checkbox{display:flex;align-items:center;gap:8px}
+.checkbox input{min-height:0;accent-color:var(--accent)}
+.sync-status{display:grid;gap:6px;color:var(--muted);font-size:.88rem}
+.sync-status [role=alert]{color:#87421d}

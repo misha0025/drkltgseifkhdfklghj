@@ -1,3 +1,4 @@
+from base64 import b64encode
 from datetime import timedelta
 from http.server import HTTPServer
 from pathlib import Path
@@ -76,10 +77,11 @@ class Acceptance(TestCase):
         self.assertEqual(self.app.view(self.now)['reports'][0]['applied'], 1)
 
     def test_automatic_mode_rejection_and_manual_revision(self):
-        self.action('mode', sku='KM-102', auto=True)
+        self.rule('Посуда', mode='auto')
         self.action('sync')
         self.assertFalse(self.app.data['history'])
         self.rule('Посуда', down=4)
+        self.assertEqual([e['sku'] for e in self.app.data['history']], ['KM-102'])
         event = self.app.data['history'][-1]
         self.assertEqual((event['sku'], event['method'], event['status']),
                          ('KM-102', 'Автоматически', 'pending'))
@@ -95,6 +97,60 @@ class Acceptance(TestCase):
         self.assertEqual(self.rec('KM-101')['price'], 1040)
         self.assertEqual(self.app.data['observed']['KM-101']['anchor'], 1040)
         self.assertEqual(sum(e['sku'] == 'KM-102' for e in self.app.data['history']), 1)
+
+    def test_authenticated_publication(self):
+        expected = 'Basic ' + b64encode('operator:secret'.encode()).decode()
+
+        class Published(Handler):
+            def do_GET(self):
+                if self.path != '/trade/hs/repricer/snapshot':
+                    self.send_error(404)
+                elif self.headers.get('Authorization') != expected:
+                    self.send_error(401)
+                else:
+                    self.path = '/snapshot'
+                    super().do_GET()
+
+        with HTTPServer(('127.0.0.1', 0), Published) as source:
+            thread = Thread(target=source.serve_forever)
+            thread.start()
+            try:
+                fields = dict(url=f'http://127.0.0.1:{source.server_port}/trade',
+                              service='hs/repricer/snapshot', login='operator', delay=2, max_drop=3)
+                self.action('settings', **fields, password='wrong')
+                with self.assertRaisesRegex(ValueError, '401'):
+                    self.action('check')
+                self.action('settings', **fields, password='secret')
+                self.app = App()
+                self.action('settings', **fields, password='')
+                self.action('sync')
+                view = self.app.view(self.now)
+                self.assertTrue(view['has_password'])
+                self.assertNotIn('password', view)
+                self.assertEqual(len(view['products']), 8)
+            finally:
+                source.shutdown()
+                thread.join()
+
+    def test_schedule_runs_once_per_day_and_survives_restart(self):
+        start = self.now.replace(hour=9, minute=0, second=0, microsecond=0)
+        with patch.object(self.app, 'sync', wraps=self.app.sync) as sync:
+            self.action('schedule', enabled=True, time='09:00')
+            self.app.run_schedule(start - timedelta(seconds=1))
+            sync.assert_not_called()
+            self.app.run_schedule(start)
+            self.app.run_schedule(start + timedelta(minutes=1))
+            sync.assert_called_once_with(start)
+        self.app = App()
+        self.assertEqual(self.app.next_sync(start), (start + timedelta(days=1)).isoformat())
+        with patch('app.accounting_snapshot', side_effect=ValueError('Ошибка источника')) as source:
+            tomorrow = start + timedelta(days=1)
+            self.app.run_schedule(tomorrow)
+            self.app.run_schedule(tomorrow + timedelta(minutes=1))
+            source.assert_called_once()
+            self.assertEqual(self.app.data['synced'], start.isoformat())
+            self.assertEqual(self.app.data['error'], 'Ошибка источника')
+            self.assertEqual(self.app.view(tomorrow)['schedule']['attempted'], tomorrow.isoformat())
 
     def test_manager_rejection(self):
         sku = 'TX-204'

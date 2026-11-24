@@ -70,26 +70,47 @@ function products() {
 
 function rules() {
   category ??= Object.keys(state.rules)[0];
-  return `<div class="panel"><h2>Настройки категории</h2><form data-action="rules">
+  const groups = [
+    ['Изменение цены', ['up', 'down', 'deviation', 'interval']],
+    ['Маржа и расходы', ['margin', 'commission', 'logistics']],
+    ['Залежалость', ['stale', 'idle']],
+  ];
+  return `<div class="panel settings-panel"><h2>Настройки категории</h2><form data-action="rules">
     <label>Категория<select id="rule-category" name="category">${options(categoryOptions(),category)}</select></label>
-    <div class="fields">${Object.entries(fields).map(([name,label]) =>
-      `<label>${label}<input name="${name}" type="number" step="any" value="${escape(state.rules[category]?.[name])}"></label>`).join('')}</div>
-    <button class="primary">Сохранить и пересчитать</button></form></div>
-    <div class="panel"><h2>Режим товаров</h2><div class="table-scroll"><table><thead><tr><th>Товар</th><th>Режим</th></tr></thead><tbody>
-    ${state.products.map(p => `<tr><td>${escape(p.name)}<small>${escape(p.sku)}</small></td><td><select aria-label="Режим ${escape(p.sku)}"
-      data-mode="${escape(p.sku)}">${options([['manual','Только рекомендации'],['auto','Автоматически']],p.auto ? 'auto':'manual')}</select></td></tr>`).join('')}
-    </tbody></table></div></div>`;
+    <label>Режим применения цен<select name="mode">${options(
+      [['manual','Только рекомендации'],['auto','Автоматически']], state.category_modes[category] || 'manual')}</select></label>
+    <p class="muted">Режим действует для всех товаров категории. Автоматически отправляются новые рекомендации.</p>
+    ${groups.map(([title, names]) => `<fieldset><legend>${title}</legend>
+      ${names.map(name => `<label>${fields[name]}<input name="${name}" type="number" step="any"
+        value="${escape(state.rules[category]?.[name])}"></label>`).join('')}</fieldset>`).join('')}
+    <button class="primary">Сохранить и пересчитать</button></form></div>`;
+}
+
+function syncStatus() {
+  return `<div>Следующий запуск · ${state.schedule.enabled ? timestamp(state.next_sync) : 'Выключен'}</div>
+    <div>Последняя попытка по расписанию · ${timestamp(state.schedule.attempted)}</div>
+    <div>Последняя успешная синхронизация · ${timestamp(state.synced)}</div>
+    ${state.error ? `<div role="alert">${escape(state.error)}</div>` : ''}`;
 }
 
 function integrations() {
-  return `<div class="panel"><h2>Подключения</h2><form data-action="settings">
-    <label>URL JSON-выгрузки 1С<input name="url" type="url" value="${escape(state.url)}" placeholder="http://127.0.0.1:8766/snapshot"></label>
-    <p class="muted">${state.url ? 'Настроен внешний HTTP-источник.' : 'Используется встроенный демонстрационный набор.'}</p>
-    <div class="fields"><label>Задержка имитатора WB, с<input name="delay" type="number" min="1" max="60" value="${state.wb.delay}" required></label>
+  return `<div class="panel"><h2>Подключение к 1С и WB</h2><form data-action="settings">
+    <div class="fields">
+      <label>Адрес публикации 1С<input name="url" type="url" value="${escape(state.url)}" placeholder="https://demo.example.ru/trade"></label>
+      <label>Путь HTTP-сервиса<input name="service" value="${escape(state.service)}" placeholder="hs/repricer/snapshot"></label>
+      <label>Логин 1С<input name="login" autocomplete="username" value="${escape(state.login)}"></label>
+      <label>Пароль 1С<input name="password" type="password" autocomplete="new-password" placeholder="${state.has_password ? 'Пароль сохранён' : ''}"></label>
+    </div>
+    <p class="muted">${state.url ? 'Пустой пароль сохраняет текущий пароль при том же адресе, пути и логине.' : 'Пока используется встроенный демонстрационный набор.'}</p>
+    <div class="fields"><label>Задержка имитатора WB, с<input name="delay" type="number" min="1" max="60" step="any" value="${state.wb.delay}" required></label>
     <label>Максимальное снижение в WB, %<input name="max_drop" type="number" min="0" max="100" step="any" value="${state.wb.max_drop}" required></label></div>
-    <div class="actions"><button class="primary">Сохранить</button><button type="button" data-action="check">Проверить соединения</button></div>
-    <div>Последняя успешная синхронизация · ${timestamp(state.synced)}</div>
-    ${state.error ? `<div role="alert">${escape(state.error)}</div>` : ''}</form></div>
+    <div class="actions"><button class="primary">Сохранить подключения</button><button type="button" data-action="check">Проверить соединения</button></div>
+    </form></div>
+    <div class="panel settings-panel"><h2>Расписание синхронизации</h2><form data-action="schedule">
+    <label class="checkbox"><input type="checkbox" name="enabled" ${state.schedule.enabled ? 'checked' : ''}> Синхронизировать ежедневно</label>
+    <label>Время запуска, МСК<input type="time" name="time" value="${escape(state.schedule.time)}" required></label>
+    <button class="primary">Сохранить расписание</button>
+    <div id="sync-status" class="sync-status">${syncStatus()}</div></form></div>
     <div class="panel"><h2>Ручная цена в имитаторе WB</h2><form data-action="manual"><div class="fields">
     <label>Товар<select name="sku">${options(state.products.map(p => [p.sku,p.sku+' · '+p.name]))}</select></label>
     <label>Цена, ₽<input name="price" type="number" min="0.01" step="0.01" required></label>
@@ -159,7 +180,10 @@ document.addEventListener('click', event => {
 });
 document.addEventListener('submit', event => {
   event.preventDefault();
-  action({action:event.target.dataset.action,...Object.fromEntries(new FormData(event.target))});
+  const values = Object.fromEntries(new FormData(event.target));
+  const type = event.target.dataset.action;
+  if (type === 'schedule') values.enabled = event.target.elements.enabled.checked;
+  action({action:type,...values});
 });
 document.addEventListener('input', event => {
   if (event.target.id === 'search') {
@@ -178,25 +202,31 @@ document.addEventListener('change', event => {
   } else if (el.id === 'period') {
     period = Number(el.value);
     render();
-  } else if (el.dataset.mode) {
-    action({action:'mode',sku:el.dataset.mode,auto:el.value === 'auto'});
   }
 });
 
 async function poll() {
-  if (busy || (state && !state.products.some(p => p.pending) && !state.history.some(e => e.status === 'pending'))) return;
+  if (busy) return;
   try {
     const response = await fetch('/api/state');
     const next = await response.json();
     if (busy) return;
-    const changed = !state || JSON.stringify(state.history) !== JSON.stringify(next.history);
+    const changed = !state || state.synced !== next.synced
+      || JSON.stringify(state.history) !== JSON.stringify(next.history);
+    const existingStatus = $('#sync-status');
+    const previousStatus = existingStatus && syncStatus();
     state = next;
-    if (changed && !['rules','integrations'].includes(tab)) {
-      if ($('#rows')) refreshRows();
-      else render();
-    } else if (!$('#content').querySelector('div')) {
+    if (!$('#content').querySelector('div')) {
       render();
+    } else if (changed && ['products','report'].includes(tab)) {
+      const searchFocused = document.activeElement?.id === 'search';
+      render();
+      if (searchFocused) {
+        $('#search').focus();
+        $('#search').setSelectionRange(filter.search.length, filter.search.length);
+      }
     }
+    if (existingStatus && previousStatus !== syncStatus()) existingStatus.innerHTML = syncStatus();
   } catch {
     if (!state) notice('Панель недоступна. Повторяем подключение.', true);
   }

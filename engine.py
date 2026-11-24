@@ -57,4 +57,4 @@ def recommend(product, market, rule, now):
         limit = 'После округления цена не меняется'
     if limit:
         return dict(result, kind='blocked', reason=f'{reason}. {limit}')
-    return dict(result, kind=kind, reason=reason, proposed=float(target), step=step)
+    return dict(result, kind=kind, reason=reason, proposed=float(target), step=float(step))

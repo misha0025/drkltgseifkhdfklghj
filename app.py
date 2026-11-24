@@ -1,15 +1,17 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 import json
 import math
 import mimetypes
 import os
+import re
 
-from adapters import Marketplace, accounting_snapshot
+from adapters import Marketplace, accounting_snapshot, accounting_url
 from engine import DEFAULT, recommend
 
 ROOT = Path(__file__).resolve().parent
@@ -22,18 +24,27 @@ def clock():
 
 class App:
     def __init__(self):
-        self.data = json.loads(STATE.read_text()) if STATE.exists() else dict(
-            products=[], market={}, observed={}, rules={}, recommendations={}, auto={},
+        self.data = json.loads(STATE.read_text(encoding='utf-8')) if STATE.exists() else dict(
+            products=[], market={}, observed={}, rules={}, recommendations={}, category_modes={},
             history=[], dismissed=[], url='', wb=dict(delay=8, max_drop=3),
             synced=None, error=None)
+        self.data.pop('auto', None)
+        self.data.setdefault('category_modes', {})
+        self.data.setdefault('connection', dict(service='', login='', password=''))
+        self.data.setdefault('schedule', dict(enabled=False, time='09:00', slot=None, attempted=None))
         if not self.data['synced']:
             self.sync(clock())
             self.save()
 
     def save(self):
-        temporary = STATE.with_suffix('.tmp')
-        temporary.write_text(json.dumps(self.data, ensure_ascii=False))
-        temporary.replace(STATE)
+        with NamedTemporaryFile(mode='w', encoding='utf-8', dir=STATE.parent, delete=False) as output:
+            temporary = Path(output.name)
+            try:
+                json.dump(self.data, output, ensure_ascii=False)
+                output.close()
+                temporary.replace(STATE)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def adapter(self):
         return Marketplace(self.data['market'], self.data['wb'])
@@ -49,6 +60,29 @@ class App:
             self.calculate(now)
             self.save()
 
+    def run_schedule(self, now):
+        schedule = self.data['schedule']
+        if not schedule['enabled']:
+            return
+        slot = datetime.combine(now.date(), time.fromisoformat(schedule['time']), tzinfo=now.tzinfo)
+        if now < slot or schedule['slot'] == slot.isoformat():
+            return
+        schedule.update(slot=slot.isoformat(), attempted=now.isoformat())
+        try:
+            self.sync(now)
+        except ValueError:
+            return
+        self.save()
+
+    def next_sync(self, now):
+        schedule = self.data['schedule']
+        if not schedule['enabled']:
+            return None
+        slot = datetime.combine(now.date(), time.fromisoformat(schedule['time']), tzinfo=now.tzinfo)
+        if schedule['slot'] == slot.isoformat():
+            slot += timedelta(days=1)
+        return slot.isoformat()
+
     def observe(self):
         self.data['observed'] = {sku: market.copy() for sku, market in self.data['market'].items()}
 
@@ -61,10 +95,10 @@ class App:
             market = data['observed'][sku]
             rule = data['rules'][product['category']]
             result = recommend(product, market, rule, now)
-            identity = [sku, market['revision'], rule, product['stock'], product.get('cost'), result]
+            identity = [sku, market['revision'], product['stock'], product.get('cost'), result]
             result['id'] = sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
             data['recommendations'][sku] = result
-            if (auto and data['auto'].get(sku) and result['kind'] in ('up', 'down')
+            if (auto and data['category_modes'].get(product['category']) == 'auto' and result['kind'] in ('up', 'down')
                     and result['id'] not in data['dismissed']
                     and previous.get(sku, {}).get('id') != result['id']
                     and data['market'][sku]['revision'] == market['revision']
@@ -74,7 +108,7 @@ class App:
     def sync(self, now):
         data = self.data
         try:
-            products = accounting_snapshot(data['url'])
+            products = accounting_snapshot(data['url'], **data['connection'])
         except Exception as error:
             data['error'] = str(error)
             self.save()
@@ -127,10 +161,30 @@ class App:
             delay = number(body['delay'], 1, 60)
             max_drop = number(body['max_drop'], 0, 100)
             url = body['url'].strip()
-            data.update(url=url, wb=dict(delay=delay, max_drop=max_drop))
+            connection = data['connection']
+            service = body.get('service', connection['service']).strip()
+            login = body.get('login', connection['login']).strip()
+            new_password = body.get('password', '')
+            same_connection = (url, service, login) == (data['url'], connection['service'], connection['login'])
+            password = new_password or (connection['password'] if same_connection else '')
+            if ':' in login:
+                raise ValueError('Логин 1С не должен содержать двоеточие')
+            if login and (not url or not password):
+                raise ValueError('Укажите адрес публикации и пароль пользователя 1С')
+            if not login and new_password:
+                raise ValueError('Укажите логин пользователя 1С')
+            if url:
+                accounting_url(url, service)
+            data.update(url=url, connection=dict(service=service, login=login, password=password),
+                        wb=dict(delay=delay, max_drop=max_drop))
+        elif action == 'schedule':
+            enabled, at = body['enabled'], body['time']
+            if type(enabled) is not bool or not re.fullmatch(r'(?:[01][0-9]|2[0-3]):[0-5][0-9]', at):
+                raise ValueError('Укажите время синхронизации в формате ЧЧ:ММ')
+            data['schedule'].update(enabled=enabled, time=at)
         elif action == 'check':
             try:
-                rows = accounting_snapshot(data['url'])
+                rows = accounting_snapshot(data['url'], **data['connection'])
             except Exception as error:
                 data['error'] = str(error)
                 self.save()
@@ -153,12 +207,13 @@ class App:
                         raise ValueError('Порог дней без продаж должен быть целым')
             if (rules['margin'] or 0) + (rules['commission'] or 0) >= 100:
                 raise ValueError('Сумма маржи и комиссии должна быть меньше 100%')
-            data['rules'][category] = rules
-            self.calculate(now, auto=True)
-        elif action == 'mode':
-            if sku not in data['recommendations'] or type(body['auto']) is not bool:
-                raise ValueError('Некорректный режим или артикул')
-            data['auto'][sku] = body['auto']
+            mode = body.get('mode', data['category_modes'].get(category, 'manual'))
+            if mode not in ('manual', 'auto'):
+                raise ValueError('Некорректный режим категории')
+            data['category_modes'][category] = mode
+            if data['rules'][category] != rules:
+                data['rules'][category] = rules
+                self.calculate(now, auto=True)
         elif action == 'manual':
             market = data['market'][sku]
             old_price = market['price']
@@ -184,7 +239,7 @@ class App:
             latest = next((e for e in reversed(data['history']) if e['sku'] == sku), None)
             products.append(dict(p, sales=None, supplies=None, rec=rec, latest=latest,
                                  pending=bool(market.get('pending')), anchor=market['anchor'],
-                                 auto=data['auto'].get(sku, False), dismissed=rec['id'] in data['dismissed']))
+                                 auto=data['category_modes'].get(p['category']) == 'auto', dismissed=rec['id'] in data['dismissed']))
         reports = []
         for start, end in ((7, 0), (14, 7), (30, 0), (60, 30)):
             lower, upper = now.date() - timedelta(days=start), now.date() - timedelta(days=end)
@@ -212,7 +267,11 @@ class App:
                                 stale=stale if days else None, margin=(revenues-costs)/revenues*100 if revenues else None,
                                 applied=applied))
         return dict(products=products, rules=data['rules'], history=data['history'][::-1],
-                    url=data['url'], wb=data['wb'], synced=data['synced'], error=data['error'], reports=reports)
+                    url=data['url'], service=data['connection']['service'], login=data['connection']['login'],
+                    has_password=bool(data['connection']['password']), category_modes=data['category_modes'],
+                    schedule={key: data['schedule'][key] for key in ('enabled', 'time', 'attempted')},
+                    next_sync=self.next_sync(now), wb=data['wb'], synced=data['synced'],
+                    error=data['error'], reports=reports)
 
 
 def number(raw, lower, upper):
@@ -266,7 +325,9 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(HTTPServer):
     def service_actions(self):
-        app.tick(clock())
+        now = clock()
+        app.tick(now)
+        app.run_schedule(now)
 
 
 if __name__ == '__main__':

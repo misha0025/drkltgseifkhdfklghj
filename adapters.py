@@ -1,24 +1,55 @@
 """Границы учётной системы и площадки."""
 from datetime import date, datetime, timedelta
+from base64 import b64encode
 import json
 import os
 import math
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from demo import snapshot
 
 
-def accounting_snapshot(url):
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def accounting_url(url, service=''):
+    address = urlsplit(url)
+    if (address.scheme not in ('http', 'https') or not address.hostname
+            or address.username is not None or address.fragment):
+        raise ValueError('Укажите HTTP(S)-адрес без учётных данных и фрагмента')
+    if service:
+        path = urlsplit(service)
+        if address.query or path.scheme or path.netloc or path.query or path.fragment or '..' in path.path.split('/'):
+            raise ValueError('Укажите путь HTTP-сервиса относительно публикации')
+        return url.rstrip('/') + '/' + service.strip('/')
+    return url
+
+
+def accounting_snapshot(url, service='', login='', password=''):
     if not url:
         return snapshot()
-    address = urlsplit(url)
-    if address.scheme not in ('http', 'https') or not address.hostname or address.username:
-        raise ValueError('Укажите HTTP(S)-адрес выгрузки без учётных данных')
+    token = os.getenv('REPRICER_1C_AUTH') if not login else None
+    endpoint = accounting_url(url, service)
     headers = {'Accept': 'application/json'}
-    if token := os.getenv('REPRICER_1C_AUTH'):
+    if login:
+        credentials = b64encode(f'{login}:{password}'.encode('utf-8')).decode('ascii')
+        headers['Authorization'] = f'Basic {credentials}'
+    elif token:
         headers['Authorization'] = token
-    with urlopen(Request(url, headers=headers), timeout=5) as response:
-        rows = json.load(response)
+    try:
+        with build_opener(NoRedirect()).open(Request(endpoint, headers=headers), timeout=5) as response:
+            rows = json.load(response)
+    except HTTPError as error:
+        if error.code in (401, 403):
+            raise ValueError(f'HTTP {error.code}. Проверьте логин, пароль и права в 1С') from error
+        if 300 <= error.code < 400:
+            raise ValueError(f'HTTP {error.code}. Укажите конечный адрес публикации или выгрузки') from error
+        raise ValueError(f'HTTP {error.code}. Проверьте путь HTTP-сервиса') from error
+    except json.JSONDecodeError as error:
+        raise ValueError('Ожидался JSON. Проверьте путь HTTP-сервиса 1С') from error
     if not isinstance(rows, list) or not rows:
         raise ValueError('Выгрузка должна содержать массив товаров')
     seen = set()
