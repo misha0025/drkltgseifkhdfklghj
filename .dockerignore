@@ -1,0 +1,8 @@
+*
+!app.py
+!adapters.py
+!demo.py
+!engine.py
+!ut_odata.py
+!static/
+!static/**
